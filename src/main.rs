@@ -19,7 +19,10 @@ impl From<CliMathStyle> for MathStyle {
 }
 
 #[derive(Parser)]
-#[command(version, about = "Tasteful Markdown and mathematical equation formatting")]
+#[command(
+    version,
+    about = "Tasteful Markdown and mathematical equation formatting"
+)]
 struct Args {
     /// Markdown file to format.
     path: PathBuf,
