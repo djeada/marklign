@@ -85,7 +85,10 @@ mod tests {
 
     #[test]
     fn preserves_line_breaks_in_math() {
-        assert_eq!(format_display_math("u=g\n\\qquad\nx=y\n"), "u = g\n\\qquad\nx = y\n");
+        assert_eq!(
+            format_display_math("u=g\n\\qquad\nx=y\n"),
+            "u = g\n\\qquad\nx = y\n"
+        );
     }
 
     #[test]
