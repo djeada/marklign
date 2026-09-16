@@ -39,3 +39,16 @@ $$
     assert!(output.contains(r"\text{otherwise}"));
     assert_eq!(output, format_document(&output).unwrap());
 }
+
+#[test]
+fn fenced_code_is_unchanged_but_math_after_the_fence_is_formatted() {
+    for (open, close) in [("```latex", "```"), ("~~~latex", "~~~")] {
+        let input = format!(
+            "{open}\n$$\n\\begin{{aligned}}\na\n&\n=\nb\n\\end{{aligned}}\n$$\n{close}\n\n$$\n\\begin{{aligned}}\na\n&\n=\nb\n\\end{{aligned}}\n$$\n"
+        );
+        let output = format_document(&input).unwrap();
+        assert!(output.contains("\\begin{aligned}\na\n&\n=\nb\n\\end{aligned}"));
+        assert!(output.contains("\\begin{aligned}\n  a &= b\n\\end{aligned}"));
+        assert_eq!(output, format_document(&output).unwrap());
+    }
+}
