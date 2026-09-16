@@ -2,6 +2,7 @@
 
 mod environments;
 mod math;
+mod preparse;
 
 use comrak::{Arena, Options, format_commonmark, nodes::NodeValue, parse_document};
 
@@ -38,9 +39,9 @@ pub fn format_document(input: &str) -> Result<String, std::fmt::Error> {
 
 /// Format Markdown without changing math inside code fences or inline math.
 ///
-/// Ordinary `$$` display equations are reflowed by a TeX-aware tokenizer.
-/// Standalone `aligned`, `split`, and `cases` environments have their explicit
-/// rows and alignment columns preserved, while each safe row is normalized.
+/// Recognized standalone math environments are normalized before Markdown
+/// parsing: otherwise, isolated `=` source lines can become setext headings.
+/// Ordinary `$$` display equations are then reflowed by a TeX-aware tokenizer.
 /// Unknown environments, comments, metadata, and malformed groups are left
 /// unchanged by the math pass rather than risking changed mathematical meaning.
 pub fn format_document_with_options(
@@ -57,8 +58,9 @@ pub fn format_document_with_options(
     options.render.width = 0;
     options.render.prefer_fenced = true;
 
+    let prepared = preparse::normalize_environments(input);
     let arena = Arena::new();
-    let root = parse_document(&arena, input, &options);
+    let root = parse_document(&arena, &prepared, &options);
 
     for node in root.descendants() {
         if let NodeValue::Math(ref mut math) = node.data_mut().value {
@@ -214,7 +216,10 @@ mod tests {
         let input =
             "# Math\n\n$$\n\\begin{aligned}\na\n&\n=\nb\n+\nc \\\\\nd &= e\n\\end{aligned}\n$$\n";
         let once = format_document(input).unwrap();
-        assert!(once.contains("\\begin{aligned}\n  a &= b + c \\\\\n  d &= e\n\\end{aligned}"));
+        assert!(
+            once.contains("\\begin{aligned}\n  a &= b + c \\\\\n  d &= e\n\\end{aligned}"),
+            "actual: {once:?}"
+        );
         assert_eq!(once, format_document(&once).unwrap());
     }
 
