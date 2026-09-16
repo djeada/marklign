@@ -113,11 +113,19 @@ mod tests {
     #[test]
     fn formats_dirichlet_and_neumann() {
         assert_eq!(
-            format_display_math("u=g\n\\qquad\n\\text{on } \\partial\\Omega.", MathStyle::Readable, 88),
+            format_display_math(
+                "u=g\n\\qquad\n\\text{on } \\partial\\Omega.",
+                MathStyle::Readable,
+                88
+            ),
             "u = g\n\\qquad \\text{on } \\partial\\Omega."
         );
         assert_eq!(
-            format_display_math("\\frac{\\partial u}{\\partial n}=g", MathStyle::Readable, 88),
+            format_display_math(
+                "\\frac{\\partial u}{\\partial n}=g",
+                MathStyle::Readable,
+                88
+            ),
             "\\frac{\\partial u}{\\partial n} = g"
         );
     }
@@ -140,23 +148,38 @@ mod tests {
         for line in output.lines() {
             assert!(!matches!(line.trim(), "+" | "-" | "="));
             assert!(!line.trim_start().starts_with('='));
-            assert!(!line.trim_end().ends_with(['+', '-', '=']));
+            assert!(!line
+                .trim_end()
+                .chars()
+                .last()
+                .is_some_and(|ch| matches!(ch, '+' | '-' | '=')));
+        }
+    }
+
+    #[test]
+    fn wraps_a_long_sum_with_operators_attached_to_terms() {
+        let output = format_display_math(
+            "alpha + beta + gamma + delta + epsilon = zeta",
+            MathStyle::Readable,
+            20,
+        );
+        assert!(output.contains('\n'));
+        for line in output.lines() {
+            assert!(!matches!(line.trim(), "+" | "-" | "="));
+            assert!(!line.starts_with('='));
         }
     }
 
     #[test]
     fn skips_explicit_tex_line_breaks_alignments_and_comments() {
         for input in [
-            "a &= b \\\\\nc &= d",
-            "\\begin{aligned}\na &= b\\\\\n\\end{aligned}",
+            r"a &= b \\ c &= d",
+            r"\begin{aligned} a &= b \\ \end{aligned}",
             "a% commentary\n+ b",
             "\\text{unclosed\n+ b",
             "\\tag{1} x=y",
         ] {
-            assert_eq!(
-                format_display_math(input, MathStyle::Readable, 88),
-                input
-            );
+            assert_eq!(format_display_math(input, MathStyle::Readable, 88), input);
         }
     }
 
