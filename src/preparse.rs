@@ -100,7 +100,9 @@ mod tests {
     #[test]
     fn preserves_fenced_code_for_backticks_and_tildes() {
         for fence in ["```latex", "~~~latex"] {
-            let input = format!("{fence}\n$$\n\\begin{{aligned}}\na\n&\n=\nb\n\\end{{aligned}}\n$$\n{fence}\n");
+            let input = format!(
+                "{fence}\n$$\n\\begin{{aligned}}\na\n&\n=\nb\n\\end{{aligned}}\n$$\n{fence}\n"
+            );
             assert_eq!(normalize_environments(&input), input);
         }
     }
