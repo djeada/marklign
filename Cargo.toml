@@ -1,0 +1,12 @@
+[package]
+name = "marklign"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A Markdown formatter with conservative LaTeX math support"
+license = "MIT"
+repository = "https://github.com/djeada/marklign"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+comrak = "0.55"
