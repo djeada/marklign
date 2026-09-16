@@ -148,11 +148,8 @@ mod tests {
         for line in output.lines() {
             assert!(!matches!(line.trim(), "+" | "-" | "="));
             assert!(!line.trim_start().starts_with('='));
-            assert!(!line
-                .trim_end()
-                .chars()
-                .last()
-                .is_some_and(|ch| matches!(ch, '+' | '-' | '=')));
+            let last = line.trim_end().chars().last();
+            assert!(!last.is_some_and(|ch| matches!(ch, '+' | '-' | '=')));
         }
     }
 
