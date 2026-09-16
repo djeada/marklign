@@ -48,6 +48,7 @@ pub(crate) fn format_display_math(input: &str, style: MathStyle, width: usize) -
             // Treat \qquad as a semantic separation in the readable style,
             // but keep it attached to the expression that follows it.
             if tokens[index].text == "\\qquad"
+                && tokens[index - 1].text != "\\qquad"
                 && tokens[index + 1].text != "\\qquad"
                 && tokens[index + 1].text != "\\quad"
             {
@@ -204,15 +205,20 @@ fn separator(tokens: &[Token<'_>], index: usize) -> &'static str {
     if previous.kind == Kind::Operator {
         return if unary(tokens, index - 1) { "" } else { " " };
     }
-    if matches!(current.text, "." | "," | ";" | ":" | "!" | "?" | ")" | "]" | "^" | "_" | "'")
-        || matches!(previous.text, "(" | "[" | "^" | "_")
+    if matches!(
+        current.text,
+        "." | "," | ";" | ":" | "!" | "?" | ")" | "]" | "^" | "_" | "'"
+    ) || matches!(previous.text, "(" | "[" | "^" | "_")
     {
         return "";
     }
     if current.kind == Kind::Group && previous.kind == Kind::Command {
         return "";
     }
-    if matches!(current.text, "\\frac" | "\\sqrt" | "\\text" | "\\operatorname") {
+    if matches!(
+        current.text,
+        "\\frac" | "\\sqrt" | "\\text" | "\\operatorname"
+    ) {
         return " ";
     }
     // Required by TeX: `\alpha u` cannot become `\alphau`.
@@ -240,9 +246,15 @@ fn render(tokens: &[Token<'_>], start: usize, end: usize) -> String {
 }
 
 fn can_break_before(tokens: &[Token<'_>], index: usize) -> bool {
-    index > 0
-        && tokens[index - 1].kind != Kind::Operator
-        && tokens[index].kind != Kind::Operator
+    if index == 0 || tokens[index - 1].kind == Kind::Operator {
+        return false;
+    }
+    // If a sum must wrap, keep the + or - with the NEXT term: no dangling
+    // operator at line end, and never start a line with an equality sign.
+    if matches!(tokens[index].text, "+" | "-") {
+        return index + 1 < tokens.len() && !unary(tokens, index);
+    }
+    tokens[index].kind != Kind::Operator
         && tokens[index].kind != Kind::Group
         && separator(tokens, index) == " "
 }
