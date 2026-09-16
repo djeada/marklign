@@ -159,8 +159,10 @@ mod tests {
 
     #[test]
     fn formats_aligned_rows_without_losing_alignment() {
-        let input = "\\begin{aligned}\n\\alpha u\n&\n=\ng\n+\nh \\\\\n\\beta u\n&=\nk\n\\end{aligned}";
-        let expected = "\\begin{aligned}\n  \\alpha u &= g + h \\\\\n  \\beta u &= k\n\\end{aligned}";
+        let input =
+            "\\begin{aligned}\n\\alpha u\n&\n=\ng\n+\nh \\\\\n\\beta u\n&=\nk\n\\end{aligned}";
+        let expected =
+            "\\begin{aligned}\n  \\alpha u &= g + h \\\\\n  \\beta u &= k\n\\end{aligned}";
         assert_eq!(format_environment(input).as_deref(), Some(expected));
         assert_eq!(format_environment(expected).as_deref(), Some(expected));
     }
