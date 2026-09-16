@@ -37,7 +37,42 @@ The formatter's layout rules for **ordinary display math**:
 - In the default **readable** style, put `\qquad` at the beginning of its accompanying contextual clause, not on a line alone. In **compact** style, prefer a single line when it fits.
 - Wrap at safe token boundaries instead of splitting inside `\frac{...}{...}`, `\text{...}`, or other grouped arguments. The width is a preference, not an excuse for broken mathematics.
 
-This is still an early-stage formatter, **not a general TeX parser**. The math pass deliberately leaves expressions with `\begin`/`\end` environments, explicit `\\` line breaks, alignment markers (`&`), comments, TeX definition or metadata commands, or unmatched braces untouched. It does not format inline `$...$` math or the interiors of braced arguments. Comrak may independently normalize Markdown syntax and surrounding blank lines.
+## Row-aware LaTeX environments
+
+A standalone `aligned`, `split`, or `cases` environment occupying an entire `$$...$$` block is formatted row by row. Marklign preserves explicit TeX row breaks (`\\`) and top-level alignment tabs (`&`) instead of accidentally joining rows into a different equation.
+
+Input:
+
+```latex
+$$
+\begin{aligned}
+\alpha u
+&
+=
+g
++
+h \\
+\beta u
+&=
+k
+\end{aligned}
+$$
+```
+
+Output:
+
+```latex
+$$
+\begin{aligned}
+  \alpha u &= g + h \\
+  \beta u &= k
+\end{aligned}
+$$
+```
+
+Each row is kept on one source line, indented by two spaces, to preserve its alignment. A row may exceed `--math-width`: unlike plain display math, Marklign does not introduce new explicit TeX row breaks to satisfy a width preference. Nested braced arguments and escaped `\&` do not become column boundaries.
+
+**Conservative boundaries:** Only complete standalone environments with one of these three names are recognized. Nested or unknown environments, comments, optional row spacing such as `\\[2pt]`, starred row breaks, metadata/definition commands, malformed groups, and other constructs that cannot safely be understood are left unchanged by the math pass. Inline math and the interiors of braced arguments are not formatted. Comrak may independently normalize surrounding Markdown and blank lines.
 
 ## Install and run
 
@@ -58,8 +93,8 @@ After building, use `target/debug/marklign` in place of `cargo run --`.
 - `--write` overwrites the file only if it needs formatting.
 - `--check` makes no changes and exits 1 if formatting is needed (0 otherwise).
 - `--write` and `--check` cannot be combined.
-- `--math-style readable|compact` selects equation layout; default: `readable`.
-- `--math-width N` controls preferred display-equation source width; default: `88`, minimum: `20`. Indivisible tokens and equations whose safe breakpoints do not fit may exceed it.
+- `--math-style readable|compact` selects layout for ordinary equations; default: `readable`. Environment rows use compact layout to preserve explicit alignment.
+- `--math-width N` controls preferred ordinary display-equation source width; default: `88`, minimum: `20`. Indivisible tokens, environment rows, and equations whose safe breakpoints do not fit may exceed it.
 
 ## Development
 
@@ -68,8 +103,8 @@ cargo fmt --all -- --check
 cargo test --all-targets
 ```
 
-Tests cover the full Robin example, Dirichlet and Neumann conditions, operator-only input lines, unary minus, safe TeX token joining, unsupported constructs, math in Markdown versus code fences, front matter, and formatting idempotence. The CI workflow runs formatting, tests, and a CLI smoke test.
+Tests cover Robin, Dirichlet, Neumann, alignment-row normalization, cases, preserved escaped ampersands, unsupported nested environments, operator-only input lines, unary minus, safe TeX token joining, math in Markdown versus code fences, front matter, and formatting idempotence. CI runs formatting, tests, and a CLI smoke test.
 
-A future environment-aware LaTeX parser could safely support `align`, `cases`, comments, and more sophisticated line-break aesthetics. Those transformations are intentionally not attempted here.
+Marklign is still an early-stage formatter, **not a general TeX parser**. Full environment parsing, conditional alignment, nested expressions, and user configuration remain future work.
 
 Licensed under MIT.

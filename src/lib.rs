@@ -1,6 +1,8 @@
 //! Opinionated Markdown formatting with syntax-aware display-math layout.
 
+mod environments;
 mod math;
+mod preparse;
 
 use comrak::{Arena, Options, format_commonmark, nodes::NodeValue, parse_document};
 
@@ -37,9 +39,11 @@ pub fn format_document(input: &str) -> Result<String, std::fmt::Error> {
 
 /// Format Markdown without changing math inside code fences or inline math.
 ///
-/// Ordinary `$$` display equations are reflowed by a TeX-aware tokenizer.
-/// Environments, explicit line breaks, comments, and malformed groups are left
-/// untouched by the math-specific pass to avoid changing their meaning.
+/// Recognized standalone math environments are normalized before Markdown
+/// parsing: otherwise, isolated `=` source lines can become setext headings.
+/// Ordinary `$$` display equations are then reflowed by a TeX-aware tokenizer.
+/// Unknown environments, comments, metadata, and malformed groups are left
+/// unchanged by the math pass rather than risking changed mathematical meaning.
 pub fn format_document_with_options(
     input: &str,
     preferences: FormatOptions,
@@ -54,17 +58,21 @@ pub fn format_document_with_options(
     options.render.width = 0;
     options.render.prefer_fenced = true;
 
+    let prepared = preparse::normalize_environments(input);
     let arena = Arena::new();
-    let root = parse_document(&arena, input, &options);
+    let root = parse_document(&arena, &prepared, &options);
 
     for node in root.descendants() {
         if let NodeValue::Math(ref mut math) = node.data_mut().value {
             if math.display_math && math.dollar_math {
-                math.literal = math::format_display_math(
-                    &math.literal,
-                    preferences.math_style,
-                    preferences.math_width.max(20),
-                );
+                math.literal =
+                    environments::format_environment(&math.literal).unwrap_or_else(|| {
+                        math::format_display_math(
+                            &math.literal,
+                            preferences.math_style,
+                            preferences.math_width.max(20),
+                        )
+                    });
             }
         }
     }
@@ -201,6 +209,26 @@ mod tests {
         )
         .unwrap();
         assert!(output.contains(&ROBIN_READABLE.replace('\n', " ")));
+    }
+
+    #[test]
+    fn document_formats_aligned_environment_and_is_idempotent() {
+        let input =
+            "# Math\n\n$$\n\\begin{aligned}\na\n&\n=\nb\n+\nc \\\\\nd &= e\n\\end{aligned}\n$$\n";
+        let once = format_document(input).unwrap();
+        assert!(
+            once.contains("\\begin{aligned}\n  a &= b + c \\\\\n  d &= e\n\\end{aligned}"),
+            "actual: {once:?}"
+        );
+        assert_eq!(once, format_document(&once).unwrap());
+    }
+
+    #[test]
+    fn document_preserves_unsupported_nested_environment_and_code() {
+        let nested = r"\begin{aligned}\begin{cases}x&1\end{cases}\end{aligned}";
+        let input = format!("$$\n{nested}\n$$\n\n```latex\n{nested}\n```\n");
+        let output = format_document(&input).unwrap();
+        assert_eq!(output.matches(nested).count(), 2);
     }
 
     #[test]
