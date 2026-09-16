@@ -63,13 +63,14 @@ pub fn format_document_with_options(
     for node in root.descendants() {
         if let NodeValue::Math(ref mut math) = node.data_mut().value {
             if math.display_math && math.dollar_math {
-                math.literal = environments::format_environment(&math.literal).unwrap_or_else(|| {
-                    math::format_display_math(
-                        &math.literal,
-                        preferences.math_style,
-                        preferences.math_width.max(20),
-                    )
-                });
+                math.literal =
+                    environments::format_environment(&math.literal).unwrap_or_else(|| {
+                        math::format_display_math(
+                            &math.literal,
+                            preferences.math_style,
+                            preferences.math_width.max(20),
+                        )
+                    });
             }
         }
     }
@@ -210,7 +211,8 @@ mod tests {
 
     #[test]
     fn document_formats_aligned_environment_and_is_idempotent() {
-        let input = "# Math\n\n$$\n\\begin{aligned}\na\n&\n=\nb\n+\nc \\\\\nd &= e\n\\end{aligned}\n$$\n";
+        let input =
+            "# Math\n\n$$\n\\begin{aligned}\na\n&\n=\nb\n+\nc \\\\\nd &= e\n\\end{aligned}\n$$\n";
         let once = format_document(input).unwrap();
         assert!(once.contains("\\begin{aligned}\n  a &= b + c \\\\\n  d &= e\n\\end{aligned}"));
         assert_eq!(once, format_document(&once).unwrap());
