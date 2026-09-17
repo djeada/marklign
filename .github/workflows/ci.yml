@@ -5,24 +5,50 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all -- --check
-      - name: Test Markdown environment integration
-        run: cargo test --test environment_integration -- --nocapture
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
       - name: Run tests
         run: cargo test --all-targets
-      - name: Smoke-test CLI
+      - name: Smoke-test the CLI
         shell: bash
         run: |
-          printf '## PDEs\n\n$$\nu=g\n$$\n' > /tmp/marklign-smoke.md
-          cargo run -- /tmp/marklign-smoke.md --write
-          cargo run -- /tmp/marklign-smoke.md --check
-          grep -q 'u = g' /tmp/marklign-smoke.md
+          set -euo pipefail
+          # An isolated `=` line is a setext heading underline to a Markdown
+          # block parser; the equation must survive it.
+          printf '## PDEs\n\n$$\nu\n=\ng\n$$\n' > smoke.md
+          cargo run --quiet -- smoke.md --write
+          cargo run --quiet -- smoke.md --check
+          grep -qx 'u = g' smoke.md
+          grep -qx '## PDEs' smoke.md
+          printf '$$\na\n+\nb\n$$\n' | cargo run --quiet -- - | grep -qx 'a + b'
+          # The README documents the formatter's own output, so it must be a
+          # fixed point. examples/ is deliberately unformatted input.
+          cargo run --quiet -- README.md --check
+
+  msrv:
+    name: Build with the declared minimum Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --all-targets

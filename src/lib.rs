@@ -43,15 +43,16 @@ pub fn format_document(input: &str) -> Result<String, std::fmt::Error> {
     format_document_with_options(input, FormatOptions::default())
 }
 
-/// Format Markdown without changing math inside code fences or inline math.
+/// Format Markdown, leaving code blocks, raw HTML, and inline math alone.
 ///
-/// Standalone `$$` blocks are formatted and held aside during Markdown
-/// parsing: to a block parser an isolated `=` line inside one is a setext
-/// heading underline, which would destroy the equation. They are restored
-/// afterwards in canonical `$$`-on-its-own-line form. Remaining display math
-/// -- inside lists, quotes, or a sentence -- is reflowed in the syntax tree.
-/// Unknown environments, comments, metadata, and malformed groups are left
-/// unchanged by the math pass rather than risking changed mathematical meaning.
+/// Every display equation that owns its source lines is formatted and held
+/// aside during Markdown parsing: to a block parser an isolated `=` line
+/// inside one is a setext heading underline, which would destroy the
+/// equation. Each is restored afterwards with the delimiters its author
+/// chose. Display math that shares a line with prose is reflowed in the
+/// syntax tree instead. Unknown environments, comments, metadata, and
+/// malformed groups are left unchanged by the math pass rather than risking
+/// changed mathematical meaning.
 pub fn format_document_with_options(
     input: &str,
     preferences: FormatOptions,

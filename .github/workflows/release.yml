@@ -1,0 +1,147 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            packages: musl-tools
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            packages: gcc-aarch64-linux-gnu
+            linker: aarch64-linux-gnu-gcc
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the tag matches the crate version
+        shell: bash
+        run: |
+          set -euo pipefail
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$crate" != "$tag" ]; then
+            echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $crate" >&2
+            exit 1
+          fi
+
+      - name: Install the cross-compilation toolchain
+        if: matrix.packages != ''
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ${{ matrix.packages }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        shell: bash
+        env:
+          # Only set for the cross-compiled target; Cargo reads the linker
+          # from the target-specific variable.
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Check that the binary runs
+        # A cross-compiled binary cannot run on this machine.
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/marklign"
+          [ -f "$binary" ] || binary="$binary.exe"
+          printf '$$\na\n=\nb\n$$\n' | "$binary" - | grep -qx 'a = b'
+          "$binary" --version
+
+      - name: Package (tar.gz)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="marklign-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/marklign" "dist/$name/"
+          cp README.md LICENSE "dist/$name/"
+          tar -czf "dist/$name.tar.gz" -C dist "$name"
+          rm -rf "dist/$name"
+          cd dist
+          if command -v shasum >/dev/null; then
+            shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          else
+            sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          fi
+
+      - name: Package (zip)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $name = "marklign-$env:GITHUB_REF_NAME-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/marklign.exe" "dist/$name/"
+          Copy-Item README.md, LICENSE "dist/$name/"
+          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
+          Remove-Item -Recurse -Force "dist/$name"
+          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File -Encoding ascii "dist/$name.zip.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marklign-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Collect the checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          cat ./*.sha256 | sort -k2 > SHA256SUMS
+          rm -f ./*.sha256
+          ls -l
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --title "marklign $GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            dist/*
