@@ -16,8 +16,14 @@ pub enum MathStyle {
     Compact,
 }
 
+/// Narrowest accepted `math_width`; below this even short terms cannot fit.
+pub const MIN_MATH_WIDTH: usize = 20;
+
+/// Default preferred width of a display-equation source line.
+pub const DEFAULT_MATH_WIDTH: usize = 88;
+
 /// Formatting preferences. Long indivisible TeX tokens may exceed `math_width`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FormatOptions {
     pub math_style: MathStyle,
     pub math_width: usize,
@@ -27,7 +33,7 @@ impl Default for FormatOptions {
     fn default() -> Self {
         Self {
             math_style: MathStyle::Readable,
-            math_width: 88,
+            math_width: DEFAULT_MATH_WIDTH,
         }
     }
 }
@@ -39,28 +45,57 @@ pub fn format_document(input: &str) -> Result<String, std::fmt::Error> {
 
 /// Format Markdown without changing math inside code fences or inline math.
 ///
-/// Recognized standalone math environments are normalized before Markdown
-/// parsing: otherwise, isolated `=` source lines can become setext headings.
-/// Ordinary `$$` display equations are then reflowed by a TeX-aware tokenizer.
+/// Standalone `$$` blocks are formatted and held aside during Markdown
+/// parsing: to a block parser an isolated `=` line inside one is a setext
+/// heading underline, which would destroy the equation. They are restored
+/// afterwards in canonical `$$`-on-its-own-line form. Remaining display math
+/// -- inside lists, quotes, or a sentence -- is reflowed in the syntax tree.
 /// Unknown environments, comments, metadata, and malformed groups are left
 /// unchanged by the math pass rather than risking changed mathematical meaning.
 pub fn format_document_with_options(
     input: &str,
     preferences: FormatOptions,
 ) -> Result<String, std::fmt::Error> {
+    let preferences = FormatOptions {
+        math_width: preferences.math_width.max(MIN_MATH_WIDTH),
+        ..preferences
+    };
+
+    let options = comrak_options();
+    let held = preparse::extract(input, preferences, &options);
+    let rendered = render(&held.text, preferences, &options)?;
+    match held.restore(&rendered) {
+        Some(output) => Ok(output),
+        // A placeholder did not survive rendering. Rather than emit a
+        // document with an equation missing, format without extraction.
+        None => render(input, preferences, &options),
+    }
+}
+
+pub(crate) fn comrak_options() -> Options<'static> {
     let mut options = Options::default();
     options.extension.math_dollars = true;
-    options.extension.math_latex = true;
+    // Comrak escapes a literal bracket in prose as `\[`, which the LaTeX math
+    // extension then reads back as display math: `\[Optional\]` would become
+    // `$$Optional$$`. Marklign handles `\[...\]` blocks itself instead.
+    options.extension.math_latex = false;
     options.extension.table = true;
     options.extension.tasklist = true;
     options.extension.strikethrough = true;
+    options.extension.alerts = true;
     options.extension.front_matter_delimiter = Some("---".into());
     options.render.width = 0;
     options.render.prefer_fenced = true;
+    options
+}
 
-    let prepared = preparse::normalize_environments(input);
+fn render(
+    markdown: &str,
+    preferences: FormatOptions,
+    options: &Options<'_>,
+) -> Result<String, std::fmt::Error> {
     let arena = Arena::new();
-    let root = parse_document(&arena, &prepared, &options);
+    let root = parse_document(&arena, markdown, options);
 
     for node in root.descendants() {
         if let NodeValue::Math(ref mut math) = node.data_mut().value {
@@ -70,7 +105,7 @@ pub fn format_document_with_options(
                         math::format_display_math(
                             &math.literal,
                             preferences.math_style,
-                            preferences.math_width.max(20),
+                            preferences.math_width,
                         )
                     });
             }
@@ -78,8 +113,64 @@ pub fn format_document_with_options(
     }
 
     let mut output = String::new();
-    format_commonmark(root, &options, &mut output)?;
-    Ok(output)
+    format_commonmark(root, options, &mut output)?;
+    Ok(tidy(&output, options))
+}
+
+/// Two blemishes of the Markdown serializer, cleaned up outside code blocks
+/// and raw HTML, where every character is the author's:
+///
+/// * Comrak separates a list from a following code block with an HTML
+///   comment. No author of Markdown wrote it and, because Marklign always
+///   emits fenced code, none is needed: a fence at the margin ends the list.
+/// * A blank line inside a list item or block quote keeps the container's
+///   prefix, leaving trailing whitespace behind.
+fn tidy(rendered: &str, options: &Options<'_>) -> String {
+    const SEPARATOR: &str = "<!-- end list -->";
+
+    let verbatim = preparse::verbatim_lines(rendered, options);
+    let lines: Vec<&str> = rendered.split_inclusive('\n').collect();
+    let mut output = String::with_capacity(rendered.len());
+    let mut index = 0;
+
+    while index < lines.len() {
+        if matches!(
+            verbatim[index],
+            Some(preparse::Verbatim::Code | preparse::Verbatim::FrontMatter)
+        ) {
+            output.push_str(lines[index]);
+            index += 1;
+            continue;
+        }
+
+        let line = lines[index].trim_end();
+        if let Some(prefix) = line
+            .strip_suffix(SEPARATOR)
+            .filter(|_| verbatim[index] == Some(preparse::Verbatim::Html))
+        {
+            let blank = lines.get(index + 1).filter(|line| line.trim().is_empty());
+            let skipped = if blank.is_some() { 2 } else { 1 };
+            let fenced = lines
+                .get(index + skipped)
+                .and_then(|next| next.trim_end().strip_prefix(prefix))
+                .is_some_and(|code| code.starts_with("```") || code.starts_with("~~~"));
+            if fenced {
+                index += skipped;
+                continue;
+            }
+        }
+
+        // Trailing whitespace is content on a line that has content: two
+        // spaces at its end are a hard line break.
+        if line.chars().all(|ch| matches!(ch, '>' | ' ' | '\t')) {
+            output.push_str(line.trim_end_matches([' ', '\t']));
+            output.push('\n');
+        } else {
+            output.push_str(lines[index]);
+        }
+        index += 1;
+    }
+    output
 }
 
 #[cfg(test)]
@@ -150,29 +241,51 @@ mod tests {
         );
     }
 
-    #[test]
-    fn never_generates_an_operator_only_line() {
-        let output = format_display_math(ROBIN, MathStyle::Readable, 24);
+    /// No wrapped line may begin with a character Markdown reads as a list
+    /// item, heading, quote, or table row, and none may be an operator by
+    /// itself or leave an equality hanging at the end of a line.
+    fn assert_markdown_safe(output: &str) {
         for line in output.lines() {
-            assert!(!matches!(line.trim(), "+" | "-" | "="));
-            assert!(!line.trim_start().starts_with('='));
-            let last = line.trim_end().chars().last();
-            assert!(!last.is_some_and(|ch| matches!(ch, '+' | '-' | '=')));
+            assert!(!matches!(line.trim(), "+" | "-" | "="), "{output:?}");
+            assert!(
+                !line.starts_with(['-', '+', '*', '>', '#', '=', '|']),
+                "{output:?}"
+            );
+            assert!(!line.trim_end().ends_with('='), "{output:?}");
         }
     }
 
     #[test]
-    fn wraps_a_long_sum_with_operators_attached_to_terms() {
+    fn wrapped_lines_never_open_with_markdown_syntax() {
+        assert_markdown_safe(&format_display_math(ROBIN, MathStyle::Readable, 24));
+        assert_markdown_safe(&format_display_math(
+            "\\text{Var}(X) = \\left(\\frac{1}{2}\\right)(0 - 50)^2 + \\left(\\frac{1}{2}\\right)(100 - 50)^2",
+            MathStyle::Readable,
+            60,
+        ));
+    }
+
+    #[test]
+    fn wraps_a_long_sum_after_its_operators() {
         let output = format_display_math(
             "alpha + beta + gamma + delta + epsilon = zeta",
             MathStyle::Readable,
             20,
         );
-        assert!(output.contains('\n'));
-        for line in output.lines() {
-            assert!(!matches!(line.trim(), "+" | "-" | "="));
-            assert!(!line.starts_with('='));
-        }
+        assert_eq!(output, "alpha + beta +\ngamma + delta +\nepsilon = zeta");
+        assert_markdown_safe(&output);
+    }
+
+    #[test]
+    fn prefers_a_break_outside_brackets() {
+        assert_eq!(
+            format_display_math(
+                "f(alpha + beta) + g(gamma + delta)",
+                MathStyle::Readable,
+                24
+            ),
+            "f(alpha + beta) +\ng(gamma + delta)"
+        );
     }
 
     #[test]

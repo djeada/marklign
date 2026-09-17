@@ -245,37 +245,68 @@ fn render(tokens: &[Token<'_>], start: usize, end: usize) -> String {
     output
 }
 
+/// Markdown claims a line that begins with one of these characters as a list
+/// item, heading, quote, or table row. However much a width preference would
+/// like the break, an equation must never hand a renderer such a line: the
+/// mathematics would come out as prose.
+fn starts_markdown_block(text: &str) -> bool {
+    text.starts_with(['-', '+', '*', '>', '#', '=', '|'])
+}
+
 fn can_break_before(tokens: &[Token<'_>], index: usize) -> bool {
-    if index == 0 || tokens[index - 1].kind == Kind::Operator {
+    if index == 0 || starts_markdown_block(tokens[index].text) {
         return false;
     }
-    // If a sum must wrap, keep the + or - with the NEXT term: no dangling
-    // operator at line end, and never start a line with an equality sign.
-    if matches!(tokens[index].text, "+" | "-") {
-        return index + 1 < tokens.len() && !unary(tokens, index);
+    if tokens[index - 1].kind == Kind::Operator {
+        // A sum may break after its + or -, which then ends the line: the
+        // alternative, starting the next line with the operator, is a list
+        // item to Markdown. An equality keeps its right-hand side instead.
+        return matches!(tokens[index - 1].text, "+" | "-") && !unary(tokens, index - 1);
     }
     tokens[index].kind != Kind::Operator
         && tokens[index].kind != Kind::Group
         && separator(tokens, index) == " "
 }
 
+/// Nesting depth of `(` and `[` before each token. Breaking a line outside
+/// every bracket reads better than breaking inside one.
+fn depths(tokens: &[Token<'_>]) -> Vec<usize> {
+    let mut depths = Vec::with_capacity(tokens.len());
+    let mut depth = 0usize;
+    for token in tokens {
+        depths.push(depth);
+        match token.text {
+            "(" | "[" => depth += 1,
+            ")" | "]" => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    depths
+}
+
 fn wrap(tokens: &[Token<'_>], width: usize) -> Vec<String> {
     if tokens.is_empty() {
         return Vec::new();
     }
+    let depths = depths(tokens);
     let mut lines = Vec::new();
     let mut start = 0;
     'outer: while start < tokens.len() {
-        let mut last_break = None;
+        let mut outside = None;
+        let mut nested = None;
         for end in start + 1..=tokens.len() {
             if end - 1 > start
                 && can_break_before(tokens, end - 1)
                 && render(tokens, start, end - 1).chars().count() <= width
             {
-                last_break = Some(end - 1);
+                if depths[end - 1] == 0 {
+                    outside = Some(end - 1);
+                } else {
+                    nested = Some(end - 1);
+                }
             }
             if render(tokens, start, end).chars().count() > width {
-                if let Some(split) = last_break {
+                if let Some(split) = outside.or(nested) {
                     lines.push(render(tokens, start, split));
                     start = split;
                     continue 'outer;
