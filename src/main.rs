@@ -112,7 +112,8 @@ fn collect(path: &Path, inputs: &mut Vec<Input>) -> std::io::Result<()> {
         } else if child
             .extension()
             .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| EXTENSIONS.contains(&extension))
+            .map(str::to_ascii_lowercase)
+            .is_some_and(|extension| EXTENSIONS.contains(&extension.as_str()))
         {
             inputs.push(Input::File(child));
         }

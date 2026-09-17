@@ -375,8 +375,11 @@ mod tests {
 
     #[test]
     fn formatting_is_idempotent_for_full_boundary_conditions() {
-        let input = include_str!("../examples/boundary_conditions.md");
-        let once = format_document(input).unwrap();
+        // `include_str!` hands over the bytes on disk, which a checkout on
+        // Windows gives CRLF endings; the expectations below are written with
+        // LF, and CRLF has a test of its own.
+        let input = include_str!("../examples/boundary_conditions.md").replace("\r\n", "\n");
+        let once = format_document(&input).unwrap();
         assert_eq!(once, format_document(&once).unwrap());
         assert!(once.contains(ROBIN_READABLE));
     }

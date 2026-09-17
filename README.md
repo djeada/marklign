@@ -109,14 +109,19 @@ $$
 ```
 ````
 
+A document's own line endings are kept: a file written with CRLF is not rewritten line by line just because a Markdown parser emits LF.
+
 Comrak's own normalization of the surrounding Markdown still applies (list markers, emphasis characters, link style, blank lines). Two cosmetic artifacts of it are cleaned up: the `<!-- end list -->` comment it inserts before fenced code, and the container indentation it leaves on blank lines inside lists and quotes.
 
 ## Install and run
 
-Requires Rust 1.85 or newer. Prebuilt binaries for Linux, macOS, and Windows are attached to each [release](https://github.com/djeada/marklign/releases).
+Prebuilt binaries for Linux (gnu and musl), macOS, and Windows are attached to each [release](https://github.com/djeada/marklign/releases), with checksums in `SHA256SUMS`.
+
+Building from source requires Rust 1.85 or newer:
 
 ```sh
-cargo install --path .
+cargo install --git https://github.com/djeada/marklign
+cargo install --path .              # from a clone
 ```
 
 ```sh
