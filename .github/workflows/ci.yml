@@ -35,11 +35,17 @@ jobs:
           # An isolated `=` line is a setext heading underline to a Markdown
           # block parser; the equation must survive it.
           printf '## PDEs\n\n$$\nu\n=\ng\n$$\n' > smoke.md
-          cargo run --quiet -- smoke.md --write
+          cargo run --quiet -- smoke.md
           cargo run --quiet -- smoke.md --check
           grep -qx 'u = g' smoke.md
           grep -qx '## PDEs' smoke.md
           printf '$$\na\n+\nb\n$$\n' | cargo run --quiet -- - | grep -qx 'a + b'
+          # A directory is reformatted in place, recursively.
+          mkdir -p smoke/deep
+          printf '$$\na\n=\nb\n$$\n' > smoke/deep/nested.md
+          cargo run --quiet -- smoke
+          cargo run --quiet -- smoke --check
+          grep -qx 'a = b' smoke/deep/nested.md
           # The README documents the formatter's own output, so it must be a
           # fixed point. examples/ is deliberately unformatted input.
           cargo run --quiet -- README.md --check

@@ -125,22 +125,49 @@ cargo install --path .              # from a clone
 ```
 
 ```sh
-marklign notes.md                   # print the formatted document; the file is untouched
-marklign notes.md --write           # rewrite the file, only if it needs it
+marklign notes.md                   # reformat the file in place
+marklign .                          # reformat every Markdown file in the project
 marklign docs --check               # exit 1 if any file under docs/ needs formatting
-marklign docs notes.md --write      # any number of files and directories
-cat notes.md | marklign -           # read standard input
+marklign docs --diff                # show what would change, change nothing
+cat notes.md | marklign -           # standard input to standard output
 marklign notes.md --math-style compact
 marklign notes.md --math-width 72
 ```
 
-- Without `--write` or `--check`, the formatted document goes to standard output, which requires a single input.
-- `--write` rewrites each file that needs formatting and names it on standard error.
-- `--check` changes nothing, names each file that needs formatting, and exits 1 if any does. Suitable for CI.
-- `--write` and `--check` cannot be combined.
-- A directory is searched for `.md` and `.markdown` files, skipping hidden entries, `target`, and `node_modules`. A file named explicitly is formatted whatever it is called.
+Marklign runs the way Black does: files are reformatted **in place** by default, and a file that already agrees with the formatter is not rewritten, so it keeps its modification time.
+
+```
+$ marklign .
+reformatted docs/intro.md
+
+1 file reformatted, 7 files left unchanged.
+```
+
+- Each reformatted file is named on standard error, followed by a summary line. `--verbose` names the unchanged files too; `--quiet` prints nothing but errors.
+- `--check` changes nothing and says `would reformat <path>` for each file that needs it. `--diff` prints a unified diff on standard output instead. The two can be combined.
+- `-` reads standard input and writes the formatted document to standard output.
+- Exit codes: **0** success, **1** a file would be reformatted under `--check` or `--diff`, **123** a file could not be formatted or the command line was wrong. A directory holding no Markdown is not a failure.
 - `--math-style readable|compact` selects layout for ordinary equations; default: `readable`. Environment rows use compact layout to preserve explicit alignment.
 - `--math-width N` controls preferred ordinary display-equation source width; default: `88`, minimum: `20`. Indivisible tokens, environment rows, and equations whose safe breakpoints do not fit may exceed it.
+
+### Which files a directory walk formats
+
+A directory is searched for Markdown the way Black searches for Python: `.gitignore` files are honored, hidden entries are skipped, and the remaining paths are filtered by regular expressions.
+
+```sh
+marklign . --include '\.(md|mdx)$'      # replaces the default (?i)\.(md|markdown)$
+marklign . --extend-exclude 'vendor/'   # in addition to the default exclusions
+marklign . --exclude 'generated/'       # replaces the default exclusions entirely
+marklign . --force-exclude 'CHANGELOG'  # skipped even when named on the command line
+```
+
+A pattern is matched against the path relative to the directory being walked, written with `/` separators, beginning with `/`, and ending with `/` for a directory — so `vendor/` skips that directory wherever it appears. Whitespace in a pattern is insignificant, as in Black, so a long exclusion can be written legibly. The default exclusion covers `.git`, `.hg`, `.svn`, `.venv`, `venv`, `node_modules`, `target`, `build`, `dist`, and `_build`.
+
+A file named on the command line is formatted whatever it is called and wherever it lives, even if `.gitignore` covers it; only `--force-exclude` applies to it, which is what a pre-commit hook needs.
+
+The walk descends as deep as the project goes and reformats everything it finds, with three deliberate differences from Black's: hidden entries are skipped, symbolic links are not followed — one pointing at an ancestor would make the walk endless, and a followed one formats the same document twice under two names — and `node_modules` and `target` are excluded by default. A directory that cannot be read is reported and the run continues with the rest of the project, ending in exit code 123.
+
+The default include pattern is case-insensitive, so `README.MD` is formatted; a pattern you write yourself means exactly what you wrote.
 
 ## Development
 

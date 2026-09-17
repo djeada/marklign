@@ -1,12 +1,21 @@
 use std::{
-    fs,
+    fmt, fs,
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::ExitCode,
 };
 
 use clap::{Parser, ValueEnum};
 use marklign::{DEFAULT_MATH_WIDTH, FormatOptions, MIN_MATH_WIDTH, MathStyle};
+use similar::TextDiff;
+
+mod paths;
+
+use paths::{DEFAULT_EXCLUDE, DEFAULT_INCLUDE, Filters};
+
+/// Reserved, as in Black, for a run the formatter could not complete. A file
+/// that merely needs formatting is not an internal error.
+const INTERNAL_ERROR: u8 = 123;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliMathStyle {
@@ -23,32 +32,35 @@ impl From<CliMathStyle> for MathStyle {
     }
 }
 
-/// Directory names a formatter has no business walking into.
-const SKIPPED: [&str; 2] = ["target", "node_modules"];
-
-/// Extensions recognized when a directory is walked. A file named on the
-/// command line is formatted whatever it is called.
-const EXTENSIONS: [&str; 2] = ["md", "markdown"];
-
 #[derive(Parser)]
 #[command(
     version,
     about = "Tasteful Markdown and mathematical equation formatting",
-    after_help = "A directory is searched for .md and .markdown files, skipping hidden \
-                  entries, target, and node_modules. `-` reads standard input."
+    after_help = "Files are reformatted in place. A directory is searched for Markdown, \
+                  honoring .gitignore and skipping hidden entries; `-` formats standard \
+                  input to standard output. Exit code 1 means a file would be reformatted \
+                  under --check or --diff, and 123 that a file could not be formatted."
 )]
 struct Args {
     /// Markdown files or directories to format; `-` reads standard input.
     #[arg(required = true)]
     paths: Vec<PathBuf>,
 
-    /// Write the formatted Markdown back to each file that needs it.
-    #[arg(long, conflicts_with = "check")]
-    write: bool,
-
-    /// Report files that need formatting and exit 1; change nothing.
+    /// Do not write anything; exit 1 if a file would be reformatted.
     #[arg(long)]
     check: bool,
+
+    /// Do not write anything; print a diff of what would change.
+    #[arg(long)]
+    diff: bool,
+
+    /// Report each file that is already formatted as well.
+    #[arg(short, long, conflicts_with = "quiet")]
+    verbose: bool,
+
+    /// Report nothing but errors.
+    #[arg(short, long)]
+    quiet: bool,
 
     /// Display math layout: readable separates contextual clauses, compact prefers one line.
     #[arg(long, value_enum, default_value = "readable")]
@@ -57,6 +69,29 @@ struct Args {
     /// Preferred display-math source line width (long atomic expressions may exceed it).
     #[arg(long, default_value_t = DEFAULT_MATH_WIDTH)]
     math_width: usize,
+
+    /// Regular expression for the files a directory walk formats.
+    #[arg(long, default_value = DEFAULT_INCLUDE, value_name = "REGEX")]
+    include: String,
+
+    /// Regular expression for the paths a directory walk skips; replaces the default.
+    #[arg(long, default_value = DEFAULT_EXCLUDE, value_name = "REGEX")]
+    exclude: String,
+
+    /// Further paths a directory walk skips, in addition to --exclude.
+    #[arg(long, value_name = "REGEX")]
+    extend_exclude: Option<String>,
+
+    /// Paths to skip even when named on the command line.
+    #[arg(long, value_name = "REGEX")]
+    force_exclude: Option<String>,
+}
+
+impl Args {
+    /// Whether this run may rewrite files. `--check` and `--diff` only look.
+    fn writing(&self) -> bool {
+        !self.check && !self.diff
+    }
 }
 
 /// One thing to format: a file, or standard input.
@@ -69,7 +104,7 @@ impl Input {
     fn name(&self) -> String {
         match self {
             Input::File(path) => path.display().to_string(),
-            Input::Standard => "<stdin>".to_owned(),
+            Input::Standard => "-".to_owned(),
         }
     }
 
@@ -85,64 +120,178 @@ impl Input {
     }
 }
 
-/// Collect the files named, walking directories in a stable order.
-fn collect(path: &Path, inputs: &mut Vec<Input>) -> std::io::Result<()> {
-    if path == Path::new("-") {
-        inputs.push(Input::Standard);
-        return Ok(());
-    }
-    if !path.metadata()?.is_dir() {
-        inputs.push(Input::File(path.to_owned()));
-        return Ok(());
-    }
-
-    let mut entries: Vec<_> = fs::read_dir(path)?.collect::<Result<_, _>>()?;
-    entries.sort_by_key(fs::DirEntry::file_name);
-    for entry in entries {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.starts_with('.') || SKIPPED.contains(&name.as_ref()) {
-            continue;
-        }
-        // Checked rather than followed: a symbolic link can point at an
-        // ancestor, and walking it would never end.
-        let child = entry.path();
-        if entry.file_type()?.is_dir() {
-            collect(&child, inputs)?;
-        } else if child
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .is_some_and(|extension| EXTENSIONS.contains(&extension.as_str()))
-        {
-            inputs.push(Input::File(child));
-        }
-    }
-    Ok(())
+/// What a run did, and what it says about it. Counted and worded after Black,
+/// so that the last line of a build log reads the same way.
+struct Report {
+    /// True when nothing is written, under `--check` or `--diff`.
+    looking_only: bool,
+    quiet: bool,
+    verbose: bool,
+    reformatted: usize,
+    unchanged: usize,
+    failed: usize,
 }
 
-/// Format one input, returning whether it was already formatted.
+impl Report {
+    fn new(args: &Args) -> Self {
+        Self {
+            looking_only: !args.writing(),
+            quiet: args.quiet,
+            verbose: args.verbose,
+            reformatted: 0,
+            unchanged: 0,
+            failed: 0,
+        }
+    }
+
+    fn done(&mut self, name: &str, changed: bool) {
+        if changed {
+            self.reformatted += 1;
+            if !self.quiet {
+                let verb = if self.looking_only {
+                    "would reformat"
+                } else {
+                    "reformatted"
+                };
+                eprintln!("{verb} {name}");
+            }
+        } else {
+            self.unchanged += 1;
+            if self.verbose {
+                eprintln!("{name} is already formatted");
+            }
+        }
+    }
+
+    fn failed(&mut self, name: &str, error: &str) {
+        self.failed += 1;
+        eprintln!("error: cannot format {name}: {error}");
+    }
+
+    /// A path that could not even be looked at. Counted as a failure: the run
+    /// did not see everything it was asked to see.
+    fn unreadable(&mut self, problem: &str) {
+        self.failed += 1;
+        eprintln!("error: {problem}");
+    }
+
+    fn exit(&self) -> ExitCode {
+        if self.failed > 0 {
+            ExitCode::from(INTERNAL_ERROR)
+        } else if self.looking_only && self.reformatted > 0 {
+            ExitCode::FAILURE
+        } else {
+            ExitCode::SUCCESS
+        }
+    }
+}
+
+impl fmt::Display for Report {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn files(count: usize) -> &'static str {
+            if count == 1 { "file" } else { "files" }
+        }
+
+        let mut parts = Vec::new();
+        if self.reformatted > 0 {
+            let verb = if self.looking_only {
+                "would be reformatted"
+            } else {
+                "reformatted"
+            };
+            parts.push(format!(
+                "{} {} {verb}",
+                self.reformatted,
+                files(self.reformatted)
+            ));
+        }
+        if self.unchanged > 0 {
+            parts.push(format!(
+                "{} {} left unchanged",
+                self.unchanged,
+                files(self.unchanged)
+            ));
+        }
+        if self.failed > 0 {
+            let verb = if self.looking_only {
+                "would fail to reformat"
+            } else {
+                "failed to reformat"
+            };
+            parts.push(format!("{} {} {verb}", self.failed, files(self.failed)));
+        }
+        write!(formatter, "{}.", parts.join(", "))
+    }
+}
+
+/// What the paths on the command line name, and what could not be read while
+/// looking for it.
+#[derive(Default)]
+struct Work {
+    inputs: Vec<Input>,
+    problems: Vec<String>,
+}
+
+/// Collect what the paths on the command line name. A path that does not
+/// exist at all is the user's mistake and stops the run before it starts.
+fn collect(args: &Args, filters: &Filters) -> Result<Work, String> {
+    let mut work = Work::default();
+    for path in &args.paths {
+        if path.as_os_str() == "-" {
+            work.inputs.push(Input::Standard);
+            continue;
+        }
+        let kind = path
+            .metadata()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        if kind.is_dir() {
+            if filters.allows_named(path, true) {
+                let mut found = Vec::new();
+                paths::walk(path, filters, &mut found, &mut work.problems);
+                work.inputs.extend(found.into_iter().map(Input::File));
+            }
+        } else if filters.allows_named(path, false) {
+            work.inputs.push(Input::File(path.clone()));
+        }
+    }
+    Ok(work)
+}
+
+/// Format one input, returning whether it needed formatting.
 fn format(input: &Input, args: &Args, preferences: FormatOptions) -> Result<bool, String> {
     let original = input.read().map_err(|error| error.to_string())?;
     let formatted = marklign::format_document_with_options(&original, preferences)
         .map_err(|error| error.to_string())?;
-    let unchanged = formatted == original;
+    let changed = formatted != original;
+
+    if args.diff && changed {
+        let name = input.name();
+        let difference = TextDiff::from_lines(original.as_str(), formatted.as_str());
+        print!(
+            "{}",
+            difference.unified_diff().header(
+                &format!("{name}\t(original)"),
+                &format!("{name}\t(marklign)")
+            )
+        );
+    }
 
     match input {
-        // Rewrite a file only when it needs it, so that unrelated files keep
-        // their modification time.
-        Input::File(path) if args.write && !unchanged => {
+        // Rewrite a file only when it needs it, so that files already
+        // formatted keep their modification time.
+        Input::File(path) if args.writing() && changed => {
             fs::write(path, &formatted).map_err(|error| error.to_string())?;
-            eprintln!("formatted {}", path.display());
         }
-        _ if args.write || args.check => {}
-        _ => {
+        // Standard input has no file to rewrite; the formatted document is the
+        // output of the run, whether or not anything changed.
+        Input::Standard if args.writing() => {
             std::io::stdout()
                 .write_all(formatted.as_bytes())
                 .map_err(|error| error.to_string())?;
         }
+        _ => {}
     }
-    Ok(unchanged)
+    Ok(changed)
 }
 
 fn run() -> Result<ExitCode, String> {
@@ -154,48 +303,40 @@ fn run() -> Result<ExitCode, String> {
         math_style: args.math_style.into(),
         math_width: args.math_width,
     };
+    let filters = Filters::new(
+        &args.include,
+        &args.exclude,
+        args.extend_exclude.as_deref(),
+        args.force_exclude.as_deref(),
+    )?;
 
-    let mut inputs = Vec::new();
-    for path in &args.paths {
-        collect(path, &mut inputs).map_err(|error| format!("{}: {error}", path.display()))?;
+    let work = collect(&args, &filters)?;
+    let mut report = Report::new(&args);
+    for problem in &work.problems {
+        report.unreadable(problem);
     }
-    if inputs.is_empty() {
-        return Err("no Markdown files found".to_owned());
-    }
-    if !args.write && !args.check && inputs.len() > 1 {
-        return Err(
-            "printing to standard output needs a single input; use --write or --check".to_owned(),
-        );
-    }
-    if args.write && inputs.iter().any(|input| matches!(input, Input::Standard)) {
-        return Err("--write needs a file; standard input has nowhere to go".to_owned());
+    if work.inputs.is_empty() && work.problems.is_empty() {
+        // Nothing to format is not a failure: a project may hold no Markdown
+        // yet, or all of it may be excluded, and a `--check` job should not
+        // fail for that. A path that does not exist is an error, and was
+        // already reported as one.
+        if !args.quiet {
+            eprintln!("no Markdown files to format, nothing to do");
+        }
+        return Ok(ExitCode::SUCCESS);
     }
 
-    let mut unformatted = 0;
-    let mut failed = 0;
-    for input in &inputs {
+    for input in &work.inputs {
+        let name = input.name();
         match format(input, &args, preferences) {
-            Ok(true) => {}
-            Ok(false) => {
-                unformatted += 1;
-                if args.check {
-                    eprintln!("needs formatting: {}", input.name());
-                }
-            }
-            Err(error) => {
-                failed += 1;
-                eprintln!("marklign: {}: {error}", input.name());
-            }
+            Ok(changed) => report.done(&name, changed),
+            Err(error) => report.failed(&name, &error),
         }
     }
-
-    if failed > 0 || (args.check && unformatted > 0) {
-        if args.check && unformatted > 0 {
-            eprintln!("{unformatted} of {} files need formatting", inputs.len());
-        }
-        return Ok(ExitCode::FAILURE);
+    if !args.quiet {
+        eprintln!("\n{report}");
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(report.exit())
 }
 
 fn main() -> ExitCode {
@@ -203,7 +344,7 @@ fn main() -> ExitCode {
         Ok(status) => status,
         Err(error) => {
             eprintln!("marklign: {error}");
-            ExitCode::FAILURE
+            ExitCode::from(INTERNAL_ERROR)
         }
     }
 }

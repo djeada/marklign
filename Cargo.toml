@@ -1,6 +1,6 @@
 [package]
 name = "marklign"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A Markdown formatter with conservative LaTeX math support"
@@ -17,6 +17,12 @@ clap = { version = "4.5", features = ["derive"] }
 # add Comrak's own CLI and syntect with the Oniguruma C library, which would
 # make every build depend on a C toolchain.
 comrak = { version = "0.55", default-features = false }
+# The .gitignore-aware directory walk.
+ignore = "0.4"
+# --include, --exclude, and friends are regular expressions, as in Black.
+regex = "1"
+# Unified diffs for --diff.
+similar = "3"
 
 [profile.release]
 codegen-units = 1
