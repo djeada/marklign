@@ -65,12 +65,27 @@ pub fn format_document_with_options(
     let options = comrak_options();
     let held = preparse::extract(input, preferences, &options);
     let rendered = render(&held.text, preferences, &options)?;
-    match held.restore(&rendered) {
-        Some(output) => Ok(output),
+    let output = match held.restore(&rendered) {
+        Some(output) => output,
         // A placeholder did not survive rendering. Rather than emit a
         // document with an equation missing, format without extraction.
-        None => render(input, preferences, &options),
+        None => render(input, preferences, &options)?,
+    };
+    Ok(with_line_endings_of(output, input))
+}
+
+/// Keep the document's own line endings. A Markdown parser reads CRLF and
+/// writes LF, which would rewrite every line of a document written on
+/// Windows, and leave `--check` unable to ever pass there.
+fn with_line_endings_of(output: String, input: &str) -> String {
+    let carriage_returns = match input.find('\n') {
+        Some(at) => input[..at].ends_with('\r'),
+        None => false,
+    };
+    if !carriage_returns {
+        return output;
     }
+    output.replace("\r\n", "\n").replace('\n', "\r\n")
 }
 
 pub(crate) fn comrak_options() -> Options<'static> {

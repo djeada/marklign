@@ -106,3 +106,12 @@ fn front_matter_and_tables_are_preserved() {
     assert!(output.starts_with("---\ntitle: PDE notes\n---"));
     assert!(output.contains("| a | b |"), "actual: {output:?}");
 }
+
+#[test]
+fn a_document_keeps_its_own_line_endings() {
+    let output = formatted_once("Text\r\n\r\n$$\r\nu\r\n=\r\ng\r\n$$\r\n");
+    assert_eq!(output, "Text\r\n\r\n$$\r\nu = g\r\n$$\r\n");
+
+    let unix = formatted_once("Text\n\n$$\nu\n=\ng\n$$\n");
+    assert!(!unix.contains('\r'), "actual: {unix:?}");
+}

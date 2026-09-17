@@ -23,10 +23,10 @@ jobs:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             packages: musl-tools
+          # Built on a native runner: cross-compiling this target needs a C
+          # toolchain and cannot run the binary it produces.
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            packages: gcc-aarch64-linux-gnu
-            linker: aarch64-linux-gnu-gcc
+            os: ubuntu-24.04-arm
           - target: x86_64-apple-darwin
             os: macos-latest
           - target: aarch64-apple-darwin
@@ -60,15 +60,9 @@ jobs:
 
       - name: Build
         shell: bash
-        env:
-          # Only set for the cross-compiled target; Cargo reads the linker
-          # from the target-specific variable.
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Check that the binary runs
-        # A cross-compiled binary cannot run on this machine.
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
         shell: bash
         run: |
           set -euo pipefail
