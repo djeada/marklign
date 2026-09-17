@@ -13,7 +13,10 @@ exclude = ["/.github"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-comrak = "0.55"
+# Only the parser and the CommonMark writer are needed. The default features
+# add Comrak's own CLI and syntect with the Oniguruma C library, which would
+# make every build depend on a C toolchain.
+comrak = { version = "0.55", default-features = false }
 
 [profile.release]
 codegen-units = 1

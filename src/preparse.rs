@@ -207,9 +207,9 @@ fn block_at<'a>(
 }
 
 /// Two trailing spaces after the closing delimiter are a Markdown hard line
-/// break, which is content rather than stray whitespace.
+/// break, which is content rather than stray whitespace. A tab is not.
 fn is_hard_break(trailing: &str) -> bool {
-    trailing.len() >= 2
+    trailing.chars().filter(|&ch| ch == ' ').count() >= 2
 }
 
 /// Offset of a closing delimiter that ends its line, or `None`.
