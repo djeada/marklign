@@ -1,6 +1,15 @@
-// Temporary harness: rendered-HTML equivalence over a corpus of files.
-// Prose and structure must be identical; mathematics may differ only in
-// whitespace, which is exactly what reflowing an equation changes.
+//! Rendered-HTML equivalence over a corpus of documents, the property that
+//! matters most for a formatter: prose and structure must come out
+//! identical, while mathematics may differ in whitespace, which is exactly
+//! what reflowing an equation changes.
+//!
+//!     cargo run --example html_equivalence -- $(find ~/notes -name '*.md')
+//!
+//! Comrak's LaTeX math extension is left off here, as in Marklign itself,
+//! because it reads Comrak's own escaping of prose brackets back as
+//! mathematics. The cost is that a reflowed `\[...\]` equation is reported
+//! as a prose difference; those need reading rather than counting.
+
 use std::{env, fs};
 
 fn html(input: &str) -> String {
