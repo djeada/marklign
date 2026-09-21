@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::{Parser, ValueEnum};
-use marklign::{DEFAULT_MATH_WIDTH, FormatOptions, MIN_MATH_WIDTH, MathStyle};
+use marklign::{DEFAULT_MATH_WIDTH, FormatOptions, MIN_MATH_WIDTH, MathStyle, TrailingPunctuation};
 use similar::TextDiff;
 
 mod paths;
@@ -69,6 +69,10 @@ struct Args {
     /// Preferred display-math source line width (long atomic expressions may exceed it).
     #[arg(long, default_value_t = DEFAULT_MATH_WIDTH)]
     math_width: usize,
+
+    /// Keep the sentence `.` or `,` an author left at the end of a display equation.
+    #[arg(long)]
+    keep_trailing_punctuation: bool,
 
     /// Regular expression for the files a directory walk formats.
     #[arg(long, default_value = DEFAULT_INCLUDE, value_name = "REGEX")]
@@ -302,6 +306,11 @@ fn run() -> Result<ExitCode, String> {
     let preferences = FormatOptions {
         math_style: args.math_style.into(),
         math_width: args.math_width,
+        trailing_punctuation: if args.keep_trailing_punctuation {
+            TrailingPunctuation::Keep
+        } else {
+            TrailingPunctuation::Strip
+        },
     };
     let filters = Filters::new(
         &args.include,

@@ -4,6 +4,46 @@ All notable changes to marklign are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- Inline `\(...\)` math is preserved. A CommonMark parser reads `\(` as an
+  escaped parenthesis, so `\(\alpha\)` came back as `(\\alpha)`, which is no
+  longer mathematics. The spans are now held aside during parsing and put
+  back character for character, with the delimiters the author wrote.
+  Inline code, `$`-delimited math, code blocks, and a genuine `\\(` escape
+  are left alone. ([issue 3](https://github.com/djeada/marklign/issues/3))
+- A display-math block containing a blank line is no longer handed to the
+  Markdown block parser, which read its `=` line as a heading underline and
+  its `*` line as a list item. Such a block is held aside like any other, but
+  put back verbatim: a blank line ends the Markdown block the delimiters were
+  meant to bracket, so what the author meant by it is not something this
+  formatter can safely reflow. ([issue 4](https://github.com/djeada/marklign/issues/4))
+- An equation neither layout pass will touch no longer keeps a line a Markdown
+  block parser claims. A lone `=` between two `\\end{bmatrix}`/`\\begin{bmatrix}`
+  lines underlines the line above it as a setext heading, so the block rendered
+  as an `<h1>` holding half the matrix and a paragraph holding the rest, with
+  the `\\\\` row breaks eaten as prose escapes. Such a line is now joined to the
+  line above it however the equation was laid out, which is the smallest change
+  that keeps it an equation. A block holding a `%` comment or `\\verb` is still
+  left alone.
+- A line of mathematics that is nothing but `>` no longer ends the block: `x`
+  over `>` over `y` came back as a block quote.
+- A paragraph whose delimiters close on its own first line, as in the
+  `\[TODO: ...\].` Comrak writes around a prose bracket, no longer opens a
+  search for a closing delimiter further down the document.
+
+### Changed
+
+- **A trailing `.` or `,` is dropped from a display equation by default.** It
+  is prose that wandered into the mathematics, and a renderer sets it in math
+  italic among the symbols. `--keep-trailing-punctuation` restores the old
+  behavior. Only one mark, and only where it is really punctuation: `\\,`,
+  `\\right.`, `...`, and a period inside `\\text{...}` are untouched.
+- `FormatOptions` has a third field, `trailing_punctuation`, so a literal
+  construction of it needs `..FormatOptions::default()`.
+
 ## 0.2.0 - 2026-09-17
 
 The command line now behaves the way Black's does.

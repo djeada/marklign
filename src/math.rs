@@ -318,3 +318,83 @@ fn wrap(tokens: &[Token<'_>], width: usize) -> Vec<String> {
     }
     lines
 }
+
+/// A line a Markdown block parser takes away from the paragraph around it,
+/// whatever the mathematics on it says. A line of nothing but `=` underlines
+/// the line above it as a heading, and a list, quote, or fence marker opens a
+/// block of its own.
+fn claimed_by_markdown(line: &str) -> bool {
+    let line = line.trim();
+    let Some(first) = line.chars().next() else {
+        return false;
+    };
+    // A setext heading underline or a thematic break: one character repeated.
+    if matches!(first, '=' | '-' | '_' | '*') && line.chars().all(|ch| ch == first) {
+        return true;
+    }
+    match first {
+        // A list marker takes a space, or the whole rest of the line.
+        '-' | '+' | '*' => matches!(line[1..].chars().next(), None | Some(' ') | Some('\t')),
+        // One to six `#`, then a space or the rest of the line.
+        '#' => {
+            let hashes = line.chars().take_while(|&ch| ch == '#').count();
+            (1..=6).contains(&hashes)
+                && matches!(line[hashes..].chars().next(), None | Some(' ') | Some('\t'))
+        }
+        '>' | '|' => true,
+        '`' | '~' => line.starts_with("```") || line.starts_with("~~~"),
+        _ => false,
+    }
+}
+
+/// Join every line Markdown would claim onto the line above it.
+///
+/// Newlines between TeX tokens are insignificant, so this is the smallest
+/// change that keeps an equation an equation. It is applied however the
+/// equation was laid out, including to the ones the reflow above refuses:
+/// a lone `=` left in an unsupported environment still makes a heading of
+/// the `\end{...}` above it, which no renderer recovers from.
+pub(crate) fn join_claimed_lines(input: &str) -> String {
+    let lines: Vec<&str> = input.lines().collect();
+    // The first line has nothing above it to join to, and is the delimiter's
+    // problem rather than this pass's.
+    if !lines.iter().skip(1).any(|line| claimed_by_markdown(line)) {
+        return input.to_owned();
+    }
+    // A comment swallows whatever is joined onto its line, and `\verb` reads
+    // the characters around it literally.
+    if input.contains('%') || input.contains("\\verb") || input.contains('\r') {
+        return input.to_owned();
+    }
+
+    let mut joined: Vec<String> = Vec::with_capacity(lines.len());
+    for line in lines {
+        match joined.last_mut() {
+            Some(previous) if claimed_by_markdown(line) => {
+                if !previous.is_empty() {
+                    previous.push(' ');
+                }
+                previous.push_str(line.trim());
+            }
+            _ => joined.push(line.to_owned()),
+        }
+    }
+    joined.join("\n")
+}
+
+/// Drop the sentence punctuation an author left at the end of a display
+/// equation: it is prose that wandered into the mathematics, and a renderer
+/// sets it in math italic among the symbols.
+///
+/// Only one mark, and only where it really is punctuation. `\,` is a thin
+/// space, `\right.` an invisible delimiter, and `...` an ellipsis.
+pub(crate) fn strip_trailing_punctuation(input: &str) -> String {
+    let trimmed = input.trim_end();
+    let Some(body) = trimmed.strip_suffix(['.', ',']) else {
+        return input.to_owned();
+    };
+    if body.ends_with(['.', ',', '\\']) || body.ends_with("\\right") || body.ends_with("\\left") {
+        return input.to_owned();
+    }
+    body.trim_end().to_owned()
+}

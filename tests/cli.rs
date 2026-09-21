@@ -409,3 +409,18 @@ fn math_width_and_style_reach_the_formatter() {
         "$$\nu = g \\qquad \\text{on } X\n$$\n"
     );
 }
+
+#[test]
+fn trailing_punctuation_is_stripped_unless_the_run_asks_to_keep_it() {
+    let sandbox = Sandbox::new("punctuation");
+    let path = sandbox.write("notes.md", "$$\nE = mc^2.\n$$\n");
+
+    let run = marklign([path.as_os_str()]);
+    assert!(run.ok(), "{}", run.stderr);
+    assert_eq!(sandbox.read("notes.md"), "$$\nE = mc^2\n$$\n");
+
+    let kept = sandbox.write("kept.md", "$$\nE = mc^2.\n$$\n");
+    let run = marklign([kept.as_os_str(), "--keep-trailing-punctuation".as_ref()]);
+    assert!(run.ok(), "{}", run.stderr);
+    assert_eq!(sandbox.read("kept.md"), "$$\nE = mc^2.\n$$\n");
+}
