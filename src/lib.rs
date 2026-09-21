@@ -16,6 +16,18 @@ pub enum MathStyle {
     Compact,
 }
 
+/// What Marklign does with the sentence punctuation an author left at the end
+/// of a display equation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TrailingPunctuation {
+    /// Drop a single trailing `.` or `,`. It is prose rather than
+    /// mathematics, and a renderer sets it in math italic among the symbols.
+    #[default]
+    Strip,
+    /// Leave it exactly as the author wrote it.
+    Keep,
+}
+
 /// Narrowest accepted `math_width`; below this even short terms cannot fit.
 pub const MIN_MATH_WIDTH: usize = 20;
 
@@ -27,6 +39,7 @@ pub const DEFAULT_MATH_WIDTH: usize = 88;
 pub struct FormatOptions {
     pub math_style: MathStyle,
     pub math_width: usize,
+    pub trailing_punctuation: TrailingPunctuation,
 }
 
 impl Default for FormatOptions {
@@ -34,6 +47,7 @@ impl Default for FormatOptions {
         Self {
             math_style: MathStyle::Readable,
             math_width: DEFAULT_MATH_WIDTH,
+            trailing_punctuation: TrailingPunctuation::Strip,
         }
     }
 }
@@ -115,13 +129,16 @@ pub(crate) fn comrak_options() -> Options<'static> {
 /// Lay out one display equation: the row-aware environment pass where it
 /// applies, the token reflow otherwise.
 ///
-/// A line Markdown would claim is joined to the line above it however the
-/// equation was laid out, and so outside that choice -- including in the
-/// equations both passes refuse, which is where such a line does the most
-/// damage.
+/// Two rules hold however the equation was laid out, and so are applied
+/// outside that choice -- including to the equations both passes refuse,
+/// which is where a line Markdown claims does the most damage.
 pub(crate) fn format_math(source: &str, preferences: FormatOptions) -> String {
-    let laid_out = environments::format_environment(source).unwrap_or_else(|| {
-        math::format_display_math(source, preferences.math_style, preferences.math_width)
+    let source = match preferences.trailing_punctuation {
+        TrailingPunctuation::Strip => math::strip_trailing_punctuation(source),
+        TrailingPunctuation::Keep => source.to_owned(),
+    };
+    let laid_out = environments::format_environment(&source).unwrap_or_else(|| {
+        math::format_display_math(&source, preferences.math_style, preferences.math_width)
     });
     math::join_claimed_lines(&laid_out)
 }
@@ -205,11 +222,17 @@ fn tidy(rendered: &str, options: &Options<'_>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{FormatOptions, MathStyle, format_document, format_document_with_options};
+    use super::{
+        FormatOptions, MathStyle, TrailingPunctuation, format_document,
+        format_document_with_options,
+    };
     use crate::math::format_display_math;
 
     const ROBIN: &str = "\\alpha u\n+\n\\beta\\frac{\\partial u}{\\partial n} =\ng\n\\qquad\n\\text{on } \\partial\\Omega.";
     const ROBIN_READABLE: &str = "\\alpha u + \\beta \\frac{\\partial u}{\\partial n} = g\n\\qquad \\text{on } \\partial\\Omega.";
+    /// The reflow lays out an equation; the sentence period the source put
+    /// after it is dropped a step later, by the document pass.
+    const ROBIN_FORMATTED: &str = "\\alpha u + \\beta \\frac{\\partial u}{\\partial n} = g\n\\qquad \\text{on } \\partial\\Omega";
 
     #[test]
     fn robin_boundary_condition_is_not_left_broken() {
@@ -336,7 +359,7 @@ mod tests {
         let input = format!("For $\\Omega$:\n\n$$\n{ROBIN}\n$$\n");
         let output = format_document(&input).unwrap();
         assert!(output.contains("$\\Omega$"));
-        assert!(output.contains(ROBIN_READABLE));
+        assert!(output.contains(ROBIN_FORMATTED));
         assert!(!output.contains("\n+\n"));
         assert!(!output.contains("\n=\n"));
     }
@@ -348,10 +371,11 @@ mod tests {
             FormatOptions {
                 math_style: MathStyle::Compact,
                 math_width: 88,
+                ..FormatOptions::default()
             },
         )
         .unwrap();
-        assert!(output.contains(&ROBIN_READABLE.replace('\n', " ")));
+        assert!(output.contains(&ROBIN_FORMATTED.replace('\n', " ")));
     }
 
     #[test]
@@ -364,6 +388,42 @@ mod tests {
             "actual: {once:?}"
         );
         assert_eq!(once, format_document(&once).unwrap());
+    }
+
+    #[test]
+    fn keeps_trailing_punctuation_on_request() {
+        let output = format_document_with_options(
+            &format!("$$\n{ROBIN}\n$$\n"),
+            FormatOptions {
+                trailing_punctuation: TrailingPunctuation::Keep,
+                ..FormatOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(output.contains(ROBIN_READABLE), "actual: {output:?}");
+    }
+
+    #[test]
+    fn strips_one_sentence_mark_and_nothing_that_is_mathematics() {
+        for (input, expected) in [
+            ("x = 1.", "x = 1"),
+            ("x = 1,", "x = 1"),
+            ("\\end{bmatrix}.", "\\end{bmatrix}"),
+            ("x = 1.  ", "x = 1"),
+            // A thin space, an invisible delimiter, an ellipsis, and a period
+            // that is inside the mathematics rather than after it.
+            ("x \\,", "x \\,"),
+            ("\\left( a \\right.", "\\left( a \\right."),
+            ("1 + ...", "1 + ..."),
+            ("\\text{done.}", "\\text{done.}"),
+            ("x = 1", "x = 1"),
+        ] {
+            assert_eq!(
+                crate::math::strip_trailing_punctuation(input),
+                expected,
+                "{input:?}"
+            );
+        }
     }
 
     #[test]
@@ -419,6 +479,6 @@ mod tests {
         let input = include_str!("../examples/boundary_conditions.md").replace("\r\n", "\n");
         let once = format_document(&input).unwrap();
         assert_eq!(once, format_document(&once).unwrap());
-        assert!(once.contains(ROBIN_READABLE));
+        assert!(once.contains(ROBIN_FORMATTED));
     }
 }

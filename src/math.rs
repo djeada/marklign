@@ -381,3 +381,20 @@ pub(crate) fn join_claimed_lines(input: &str) -> String {
     }
     joined.join("\n")
 }
+
+/// Drop the sentence punctuation an author left at the end of a display
+/// equation: it is prose that wandered into the mathematics, and a renderer
+/// sets it in math italic among the symbols.
+///
+/// Only one mark, and only where it really is punctuation. `\,` is a thin
+/// space, `\right.` an invisible delimiter, and `...` an ellipsis.
+pub(crate) fn strip_trailing_punctuation(input: &str) -> String {
+    let trimmed = input.trim_end();
+    let Some(body) = trimmed.strip_suffix(['.', ',']) else {
+        return input.to_owned();
+    };
+    if body.ends_with(['.', ',', '\\']) || body.ends_with("\\right") || body.ends_with("\\left") {
+        return input.to_owned();
+    }
+    body.trim_end().to_owned()
+}

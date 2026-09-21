@@ -34,6 +34,16 @@ All notable changes to marklign are recorded here. The format follows
   `\[TODO: ...\].` Comrak writes around a prose bracket, no longer opens a
   search for a closing delimiter further down the document.
 
+### Changed
+
+- **A trailing `.` or `,` is dropped from a display equation by default.** It
+  is prose that wandered into the mathematics, and a renderer sets it in math
+  italic among the symbols. `--keep-trailing-punctuation` restores the old
+  behavior. Only one mark, and only where it is really punctuation: `\\,`,
+  `\\right.`, `...`, and a period inside `\\text{...}` are untouched.
+- `FormatOptions` has a third field, `trailing_punctuation`, so a literal
+  construction of it needs `..FormatOptions::default()`.
+
 ## 0.2.0 - 2026-09-17
 
 The command line now behaves the way Black's does.

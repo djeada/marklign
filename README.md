@@ -24,9 +24,11 @@ Default readable output:
 ```markdown
 $$
 \alpha u + \beta \frac{\partial u}{\partial n} = g
-\qquad \text{on } \partial\Omega.
+\qquad \text{on } \partial\Omega
 $$
 ```
+
+(The sentence period went with it; see [trailing punctuation](#trailing-punctuation).)
 
 There is a second reason. A `$$` delimiter is an *inline* construct, so a Markdown block parser reaches a line holding only `=` or `-` before it ever sees the equation around it, and reads that line as a setext heading underline. Run most Markdown formatters over
 
@@ -72,6 +74,12 @@ $$
 A lone `=` underlines the line above it as a setext heading, so that block renders as an `<h1>` holding half the matrix, followed by a paragraph holding the rest — and the `\\` row breaks are eaten as prose escapes on the way. KaTeX never sees an equation at all.
 
 So every such line is joined to the line above it, whatever the layout passes decided, giving `\end{bmatrix} =`. Newlines between TeX tokens are insignificant, which makes this the smallest change that keeps an equation an equation. Lines that merely *begin* with one of those characters are left alone — `-c\\` is a matrix row, not a list item, because no space follows the `-`. A block holding a `%` comment or `\verb` is left alone entirely: joining onto a comment would swallow the mathematics.
+
+## Trailing punctuation
+
+A `.` or `,` at the very end of a display equation is prose that wandered into the mathematics, and a renderer sets it in math italic among the symbols. Marklign drops one such mark by default; `--keep-trailing-punctuation` leaves it as written.
+
+Only where it really is punctuation: `\,` is a thin space, `\right.` an invisible delimiter, `...` an ellipsis, and a period inside `\text{...}` is part of the text. None of them is a sentence ending, and none is touched.
 
 ## Delimiters and block shape
 
@@ -156,6 +164,7 @@ marklign docs --diff                # show what would change, change nothing
 cat notes.md | marklign -           # standard input to standard output
 marklign notes.md --math-style compact
 marklign notes.md --math-width 72
+marklign notes.md --keep-trailing-punctuation
 ```
 
 Marklign runs the way Black does: files are reformatted **in place** by default, and a file that already agrees with the formatter is not rewritten, so it keeps its modification time.
@@ -173,6 +182,7 @@ reformatted docs/intro.md
 - Exit codes: **0** success, **1** a file would be reformatted under `--check` or `--diff`, **123** a file could not be formatted or the command line was wrong. A directory holding no Markdown is not a failure.
 - `--math-style readable|compact` selects layout for ordinary equations; default: `readable`. Environment rows use compact layout to preserve explicit alignment.
 - `--math-width N` controls preferred ordinary display-equation source width; default: `88`, minimum: `20`. Indivisible tokens, environment rows, and equations whose safe breakpoints do not fit may exceed it.
+- `--keep-trailing-punctuation` keeps the sentence `.` or `,` at the end of a display equation, which is otherwise dropped.
 
 ### Which files a directory walk formats
 

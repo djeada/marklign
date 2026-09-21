@@ -193,7 +193,7 @@ fn inline_math_and_a_held_equation_coexist() {
 #[test]
 fn an_unreflowable_block_never_keeps_a_line_markdown_would_claim() {
     let input = "$$\n\\begin{bmatrix}\nQ&A^\\top\\\\\nA&0\n\\end{bmatrix}\n\\begin{bmatrix}\nx\\\\\n\\nu\n\\end{bmatrix}\n=\n\\begin{bmatrix}\n-c\\\\\nb\n\\end{bmatrix}.\n$$\n";
-    let expected = "$$\n\\begin{bmatrix}\nQ&A^\\top\\\\\nA&0\n\\end{bmatrix}\n\\begin{bmatrix}\nx\\\\\n\\nu\n\\end{bmatrix} =\n\\begin{bmatrix}\n-c\\\\\nb\n\\end{bmatrix}.\n$$\n";
+    let expected = "$$\n\\begin{bmatrix}\nQ&A^\\top\\\\\nA&0\n\\end{bmatrix}\n\\begin{bmatrix}\nx\\\\\n\\nu\n\\end{bmatrix} =\n\\begin{bmatrix}\n-c\\\\\nb\n\\end{bmatrix}\n$$\n";
     assert_eq!(formatted_once(input), expected);
 
     // Every line the block parser would take away from the paragraph.
@@ -220,4 +220,33 @@ fn an_unreflowable_block_never_keeps_a_line_markdown_would_claim() {
 fn a_commented_equation_is_not_rearranged_to_please_markdown() {
     let input = "$$\na % why\n=\nb\n$$\n";
     assert_eq!(formatted_once(input), input);
+}
+
+#[test]
+fn a_sentence_period_after_an_equation_is_dropped() {
+    assert_eq!(formatted_once("$$\nE = mc^2.\n$$\n"), "$$\nE = mc^2\n$$\n");
+    assert_eq!(formatted_once("$$a = b,$$\n"), "$$a = b$$\n");
+    assert_eq!(
+        formatted_once("$$\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}.\n$$\n"),
+        "$$\n\\begin{aligned}\n  a &= b \\\\\n  c &= d\n\\end{aligned}\n$$\n"
+    );
+}
+
+/// `\,` is a thin space, `\right.` an invisible delimiter, and `...` an
+/// ellipsis: none of them is a sentence ending.
+#[test]
+fn punctuation_that_is_mathematics_is_kept() {
+    for input in [
+        "$$x \\,$$\n",
+        "$$1 + 2 + ...$$\n",
+        "$$\\text{ends in a period.}$$\n",
+    ] {
+        assert_eq!(formatted_once(input), input, "{input:?}");
+    }
+    // The reflow closes up `\left(` as it always does; the point here is the
+    // `.`, which `\right` needs and which must survive.
+    assert_eq!(
+        formatted_once("$$\\left( a \\right.$$\n"),
+        "$$\\left(a \\right.$$\n"
+    );
 }
