@@ -4,7 +4,9 @@ All notable changes to marklign are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.3.0 - 2026-09-21
+
+Mathematics reaches the renderer as mathematics.
 
 ### Fixed
 
@@ -21,12 +23,12 @@ All notable changes to marklign are recorded here. The format follows
   meant to bracket, so what the author meant by it is not something this
   formatter can safely reflow. ([issue 4](https://github.com/djeada/marklign/issues/4))
 - An equation neither layout pass will touch no longer keeps a line a Markdown
-  block parser claims. A lone `=` between two `\\end{bmatrix}`/`\\begin{bmatrix}`
+  block parser claims. A lone `=` between two `\end{bmatrix}`/`\begin{bmatrix}`
   lines underlines the line above it as a setext heading, so the block rendered
   as an `<h1>` holding half the matrix and a paragraph holding the rest, with
-  the `\\\\` row breaks eaten as prose escapes. Such a line is now joined to the
+  the `\\` row breaks eaten as prose escapes. Such a line is now joined to the
   line above it however the equation was laid out, which is the smallest change
-  that keeps it an equation. A block holding a `%` comment or `\\verb` is still
+  that keeps it an equation. A block holding a `%` comment or `\verb` is still
   left alone.
 - A line of mathematics that is nothing but `>` no longer ends the block: `x`
   over `>` over `y` came back as a block quote.
@@ -39,8 +41,8 @@ All notable changes to marklign are recorded here. The format follows
 - **A trailing `.` or `,` is dropped from a display equation by default.** It
   is prose that wandered into the mathematics, and a renderer sets it in math
   italic among the symbols. `--keep-trailing-punctuation` restores the old
-  behavior. Only one mark, and only where it is really punctuation: `\\,`,
-  `\\right.`, `...`, and a period inside `\\text{...}` are untouched.
+  behavior. Only one mark, and only where it is really punctuation: `\,`,
+  `\right.`, `...`, and a period inside `\text{...}` are untouched.
 - `FormatOptions` has a third field, `trailing_punctuation`, so a literal
   construction of it needs `..FormatOptions::default()`.
 
