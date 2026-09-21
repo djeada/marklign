@@ -112,6 +112,20 @@ pub(crate) fn comrak_options() -> Options<'static> {
     options
 }
 
+/// Lay out one display equation: the row-aware environment pass where it
+/// applies, the token reflow otherwise.
+///
+/// A line Markdown would claim is joined to the line above it however the
+/// equation was laid out, and so outside that choice -- including in the
+/// equations both passes refuse, which is where such a line does the most
+/// damage.
+pub(crate) fn format_math(source: &str, preferences: FormatOptions) -> String {
+    let laid_out = environments::format_environment(source).unwrap_or_else(|| {
+        math::format_display_math(source, preferences.math_style, preferences.math_width)
+    });
+    math::join_claimed_lines(&laid_out)
+}
+
 fn render(
     markdown: &str,
     preferences: FormatOptions,
@@ -123,14 +137,7 @@ fn render(
     for node in root.descendants() {
         if let NodeValue::Math(ref mut math) = node.data_mut().value {
             if math.display_math && math.dollar_math {
-                math.literal =
-                    environments::format_environment(&math.literal).unwrap_or_else(|| {
-                        math::format_display_math(
-                            &math.literal,
-                            preferences.math_style,
-                            preferences.math_width,
-                        )
-                    });
+                math.literal = format_math(&math.literal, preferences);
             }
         }
     }
@@ -357,6 +364,30 @@ mod tests {
             "actual: {once:?}"
         );
         assert_eq!(once, format_document(&once).unwrap());
+    }
+
+    #[test]
+    fn joins_only_the_lines_a_markdown_parser_would_claim() {
+        for (input, expected) in [
+            (
+                "\\end{bmatrix}\n=\n\\begin{bmatrix}",
+                "\\end{bmatrix} =\n\\begin{bmatrix}",
+            ),
+            ("a\n---\nb", "a ---\nb"),
+            ("a\n- b\nc", "a - b\nc"),
+            ("a\n> b", "a > b"),
+            // Not claimed: no space after the marker, and a line of prose.
+            ("\\begin{bmatrix}\n-c\\\\\nb", "\\begin{bmatrix}\n-c\\\\\nb"),
+            ("a\nb\nc", "a\nb\nc"),
+            // A comment would swallow whatever was joined onto its line.
+            ("a % why\n=\nb", "a % why\n=\nb"),
+        ] {
+            assert_eq!(
+                crate::math::join_claimed_lines(input),
+                expected,
+                "{input:?}"
+            );
+        }
     }
 
     #[test]

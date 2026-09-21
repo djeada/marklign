@@ -20,6 +20,16 @@ All notable changes to marklign are recorded here. The format follows
   put back verbatim: a blank line ends the Markdown block the delimiters were
   meant to bracket, so what the author meant by it is not something this
   formatter can safely reflow. ([issue 4](https://github.com/djeada/marklign/issues/4))
+- An equation neither layout pass will touch no longer keeps a line a Markdown
+  block parser claims. A lone `=` between two `\\end{bmatrix}`/`\\begin{bmatrix}`
+  lines underlines the line above it as a setext heading, so the block rendered
+  as an `<h1>` holding half the matrix and a paragraph holding the rest, with
+  the `\\\\` row breaks eaten as prose escapes. Such a line is now joined to the
+  line above it however the equation was laid out, which is the smallest change
+  that keeps it an equation. A block holding a `%` comment or `\\verb` is still
+  left alone.
+- A line of mathematics that is nothing but `>` no longer ends the block: `x`
+  over `>` over `y` came back as a block quote.
 - A paragraph whose delimiters close on its own first line, as in the
   `\[TODO: ...\].` Comrak writes around a prose bracket, no longer opens a
   search for a closing delimiter further down the document.

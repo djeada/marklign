@@ -184,3 +184,40 @@ fn inline_math_and_a_held_equation_coexist() {
         "Rate \\(\\alpha\\).\n\n$$\nu = g\n$$\n\nAnd \\(\\beta\\).\n"
     );
 }
+
+/// A lone `=` line underlines the line above it as a setext heading, which no
+/// renderer recovers from: the matrix comes back as an `<h1>` and a paragraph,
+/// with the `\\` row breaks eaten as prose escapes. The reflow pass refuses
+/// this block -- `\\` and `\begin` carry layout it cannot preserve -- so the
+/// repair has to happen outside it.
+#[test]
+fn an_unreflowable_block_never_keeps_a_line_markdown_would_claim() {
+    let input = "$$\n\\begin{bmatrix}\nQ&A^\\top\\\\\nA&0\n\\end{bmatrix}\n\\begin{bmatrix}\nx\\\\\n\\nu\n\\end{bmatrix}\n=\n\\begin{bmatrix}\n-c\\\\\nb\n\\end{bmatrix}.\n$$\n";
+    let expected = "$$\n\\begin{bmatrix}\nQ&A^\\top\\\\\nA&0\n\\end{bmatrix}\n\\begin{bmatrix}\nx\\\\\n\\nu\n\\end{bmatrix} =\n\\begin{bmatrix}\n-c\\\\\nb\n\\end{bmatrix}.\n$$\n";
+    assert_eq!(formatted_once(input), expected);
+
+    // Every line the block parser would take away from the paragraph.
+    for claimed in ["=", "---", "- b", "* b", "+ b", "> b", "# b", "| b", "***"] {
+        let output = formatted_once(&format!(
+            "$$\n\\begin{{bmatrix}}\na&b\n\\end{{bmatrix}}\n{claimed}\nc\n$$\n"
+        ));
+        for line in output.lines().skip(1) {
+            assert!(
+                !matches!(line.trim(), "=" | "-" | "---" | "***"),
+                "{claimed:?} left a setext underline: {output:?}"
+            );
+            assert!(
+                !line.starts_with(['-', '+', '*', '>', '#', '|']) || line.starts_with("\\"),
+                "{claimed:?} left a block marker: {output:?}"
+            );
+        }
+    }
+}
+
+/// A comment would swallow whatever was joined onto its line, so a block that
+/// holds one is left exactly as it is.
+#[test]
+fn a_commented_equation_is_not_rearranged_to_please_markdown() {
+    let input = "$$\na % why\n=\nb\n$$\n";
+    assert_eq!(formatted_once(input), input);
+}

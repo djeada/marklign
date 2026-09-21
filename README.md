@@ -51,6 +51,28 @@ and the equation comes back as a heading followed by loose prose. Marklign forma
 - In the default **readable** style, put `\qquad` at the beginning of its accompanying contextual clause, not on a line alone. In **compact** style, prefer a single line when it fits.
 - Wrap at safe token boundaries instead of splitting inside `\frac{...}{...}`, `\text{...}`, or other grouped arguments. The width is a preference, not an excuse for broken mathematics.
 
+## Lines Markdown would claim
+
+The rule that no line may begin with `-`, `+`, `*`, `>`, `#`, `=`, or `|` is not only about the lines Marklign writes. An equation the layout passes decline to touch — an unsupported environment, explicit `\\` row breaks, anything ambiguous — may already contain such a line, and leaving it there is not neutral:
+
+```markdown
+$$
+\begin{bmatrix}
+x\\
+\nu
+\end{bmatrix}
+=
+\begin{bmatrix}
+-c\\
+b
+\end{bmatrix}
+$$
+```
+
+A lone `=` underlines the line above it as a setext heading, so that block renders as an `<h1>` holding half the matrix, followed by a paragraph holding the rest — and the `\\` row breaks are eaten as prose escapes on the way. KaTeX never sees an equation at all.
+
+So every such line is joined to the line above it, whatever the layout passes decided, giving `\end{bmatrix} =`. Newlines between TeX tokens are insignificant, which makes this the smallest change that keeps an equation an equation. Lines that merely *begin* with one of those characters are left alone — `-c\\` is a matrix row, not a list item, because no space follows the `-`. A block holding a `%` comment or `\verb` is left alone entirely: joining onto a comment would swallow the mathematics.
+
 ## Delimiters and block shape
 
 - `$$...$$` and `\[...\]` blocks are both recognized, and each keeps the delimiters the author chose. Marklign reflows mathematics; it does not restyle delimiters.

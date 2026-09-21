@@ -10,7 +10,7 @@
 
 use comrak::{Arena, Options, nodes::NodeValue, parse_document};
 
-use crate::{FormatOptions, environments, math};
+use crate::FormatOptions;
 
 /// A document whose standalone display-math blocks have been set aside.
 pub(crate) struct BlockMath {
@@ -349,6 +349,14 @@ fn block_at<'a>(
         // Leaving the container ends the equation. A blank line in a quote
         // must still carry its `>` markers to stay inside it.
         let content = strip_container(strip_newline(line), depth)?;
+        // A further `>` opens a quote of its own, which ends the block the
+        // equation lives in. On a line of mathematics -- `x` over `>` over
+        // `y` -- it is joined to the line above instead. On the line that
+        // closes the equation it is the author's block quote, and the
+        // equation is not one this pass can recognize.
+        if content.starts_with('>') && content.contains(closer) {
+            return None;
+        }
         if content.trim().is_empty() {
             blank = true;
             continue;
@@ -429,24 +437,19 @@ fn format_block(source: &str, preferences: FormatOptions) -> String {
     if source.is_empty() {
         return source;
     }
-    environments::format_environment(&source)
-        .unwrap_or_else(|| {
-            math::format_display_math(&source, preferences.math_style, preferences.math_width)
-        })
+    crate::format_math(&source, preferences)
         .trim_matches('\n')
         .to_owned()
 }
 
 /// Remove `depth` block-quote markers and any indentation, or `None` if the
-/// line does not continue that container. A further `>` opens a quote, which
-/// would end the block the equation lives in.
+/// line does not continue that container.
 fn strip_container(line: &str, depth: usize) -> Option<&str> {
     let mut rest = line;
     for _ in 0..depth {
         rest = rest.trim_start_matches([' ', '\t']).strip_prefix('>')?;
     }
-    let content = rest.trim_start_matches([' ', '\t']);
-    (!content.starts_with('>')).then_some(content)
+    Some(rest.trim_start_matches([' ', '\t']))
 }
 
 fn continuation_prefix(prefix: &str) -> String {
