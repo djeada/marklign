@@ -50,9 +50,11 @@ pub fn format_document(input: &str) -> Result<String, std::fmt::Error> {
 /// inside one is a setext heading underline, which would destroy the
 /// equation. Each is restored afterwards with the delimiters its author
 /// chose. Display math that shares a line with prose is reflowed in the
-/// syntax tree instead. Unknown environments, comments, metadata, and
-/// malformed groups are left unchanged by the math pass rather than risking
-/// changed mathematical meaning.
+/// syntax tree instead. Inline `\(...\)` spans, which a CommonMark parser
+/// reads as escaped parentheses, are held aside and put back verbatim.
+/// Unknown environments, comments, metadata, and malformed groups are left
+/// unchanged by the math pass rather than risking changed mathematical
+/// meaning.
 pub fn format_document_with_options(
     input: &str,
     preferences: FormatOptions,
@@ -64,8 +66,12 @@ pub fn format_document_with_options(
 
     let options = comrak_options();
     let held = preparse::extract(input, preferences, &options);
-    let rendered = render(&held.text, preferences, &options)?;
-    let output = match held.restore(&rendered) {
+    let inline = preparse::extract_inline(&held.text, &options);
+    let rendered = render(&inline.text, preferences, &options)?;
+    let restored = inline
+        .restore(&rendered)
+        .and_then(|rendered| held.restore(&rendered));
+    let output = match restored {
         Some(output) => output,
         // A placeholder did not survive rendering. Rather than emit a
         // document with an equation missing, format without extraction.
@@ -93,7 +99,8 @@ pub(crate) fn comrak_options() -> Options<'static> {
     options.extension.math_dollars = true;
     // Comrak escapes a literal bracket in prose as `\[`, which the LaTeX math
     // extension then reads back as display math: `\[Optional\]` would become
-    // `$$Optional$$`. Marklign handles `\[...\]` blocks itself instead.
+    // `$$Optional$$`. The extension also restyles `\(x\)` as `$x$`, which
+    // Marklign promises not to do. It handles both delimiter pairs itself.
     options.extension.math_latex = false;
     options.extension.table = true;
     options.extension.tasklist = true;

@@ -4,6 +4,17 @@ All notable changes to marklign are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- Inline `\(...\)` math is preserved. A CommonMark parser reads `\(` as an
+  escaped parenthesis, so `\(\alpha\)` came back as `(\\alpha)`, which is no
+  longer mathematics. The spans are now held aside during parsing and put
+  back character for character, with the delimiters the author wrote.
+  Inline code, `$`-delimited math, code blocks, and a genuine `\\(` escape
+  are left alone. ([issue 3](https://github.com/djeada/marklign/issues/3))
+
 ## 0.2.0 - 2026-09-17
 
 The command line now behaves the way Black's does.

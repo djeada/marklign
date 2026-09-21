@@ -115,3 +115,40 @@ fn a_document_keeps_its_own_line_endings() {
     let unix = formatted_once("Text\n\n$$\nu\n=\ng\n$$\n");
     assert!(!unix.contains('\r'), "actual: {unix:?}");
 }
+
+/// A CommonMark parser reads `\(` as an escaped parenthesis: the delimiters
+/// vanish and the TeX between them is escaped as prose.
+#[test]
+fn inline_latex_math_delimiters_are_preserved() {
+    for input in [
+        "The learning rate \\(\\alpha\\) controls convergence.\n",
+        "A \\(x < y\\) and \\(a_1\\)2 pair.\n",
+        "- \\(\\frac{1}{2}\\) of \\(n\\)\n",
+        "| \\(a_1\\) | b |\n| --- | --- |\n| c | d |\n",
+        "\\(= x\\)\n",
+    ] {
+        assert_eq!(formatted_once(input), input, "{input:?}");
+    }
+}
+
+/// Inline code, dollar math, and a genuine escaped backslash are none of them
+/// a span to hold aside.
+#[test]
+fn inline_latex_delimiters_are_not_read_out_of_code_or_escapes() {
+    for input in [
+        "Code `\\(x\\)` span and $\\(q\\)$ math.\n",
+        "Escaped \\\\(not math\\\\) here.\n",
+        "```latex\n\\(\\alpha\\)\n```\n",
+    ] {
+        assert_eq!(formatted_once(input), input, "{input:?}");
+    }
+}
+
+#[test]
+fn inline_math_and_a_held_equation_coexist() {
+    let input = "Rate \\(\\alpha\\).\n\n$$\nu\n=\ng\n$$\n\nAnd \\(\\beta\\).\n";
+    assert_eq!(
+        formatted_once(input),
+        "Rate \\(\\alpha\\).\n\n$$\nu = g\n$$\n\nAnd \\(\\beta\\).\n"
+    );
+}

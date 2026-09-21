@@ -57,6 +57,7 @@ and the equation comes back as a heading followed by loose prose. Marklign forma
 - An equation written as a block keeps its delimiters on their own lines. An equation written on one line stays on one line, unless reflowing it no longer fits, in which case the delimiters move onto their own lines.
 - Equations inside list items and block quotes are formatted too, and come back with their container's indentation or `>` markers.
 - Inline math (`$...$`) and the interiors of braced arguments are never touched.
+- Inline `\(...\)` spans are preserved character for character. CommonMark reads `\(` as an escaped parenthesis, so a formatter that does nothing special turns `\(\alpha\)` into `(\\alpha)` — prose where there was mathematics. Marklign holds these spans aside during parsing and puts them back exactly as written, without restyling them into `$...$`. Inline code, `$`-delimited math, and a genuine `\\(` escape are not spans and are left alone.
 
 ## Row-aware LaTeX environments
 
