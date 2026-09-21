@@ -14,6 +14,15 @@ All notable changes to marklign are recorded here. The format follows
   back character for character, with the delimiters the author wrote.
   Inline code, `$`-delimited math, code blocks, and a genuine `\\(` escape
   are left alone. ([issue 3](https://github.com/djeada/marklign/issues/3))
+- A display-math block containing a blank line is no longer handed to the
+  Markdown block parser, which read its `=` line as a heading underline and
+  its `*` line as a list item. Such a block is held aside like any other, but
+  put back verbatim: a blank line ends the Markdown block the delimiters were
+  meant to bracket, so what the author meant by it is not something this
+  formatter can safely reflow. ([issue 4](https://github.com/djeada/marklign/issues/4))
+- A paragraph whose delimiters close on its own first line, as in the
+  `\[TODO: ...\].` Comrak writes around a prose bracket, no longer opens a
+  search for a closing delimiter further down the document.
 
 ## 0.2.0 - 2026-09-17
 

@@ -58,6 +58,7 @@ and the equation comes back as a heading followed by loose prose. Marklign forma
 - Equations inside list items and block quotes are formatted too, and come back with their container's indentation or `>` markers.
 - Inline math (`$...$`) and the interiors of braced arguments are never touched.
 - Inline `\(...\)` spans are preserved character for character. CommonMark reads `\(` as an escaped parenthesis, so a formatter that does nothing special turns `\(\alpha\)` into `(\\alpha)` — prose where there was mathematics. Marklign holds these spans aside during parsing and puts them back exactly as written, without restyling them into `$...$`. Inline code, `$`-delimited math, and a genuine `\\(` escape are not spans and are left alone.
+- A blank line inside a display block ends the Markdown block the delimiters were meant to bracket. Such an equation is still held aside — otherwise its `=` and `*` lines come back as a heading and a list — but it is put back verbatim rather than reflowed: a blank line is a layout intent this formatter does not claim to understand.
 
 ## Row-aware LaTeX environments
 

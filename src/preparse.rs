@@ -294,6 +294,7 @@ fn delimited_end(line: &str, start: usize) -> usize {
     }
     open
 }
+
 /// Recognize a display equation that owns its source lines, starting at
 /// `open`; returns its container prefix, formatted contents, and last line.
 fn block_at<'a>(
@@ -323,8 +324,21 @@ fn block_at<'a>(
             open,
         ));
     }
+    // The delimiters closed on this line but prose follows them, as in the
+    // escaped brackets Comrak writes around `[TODO: ...]`. That is not an
+    // equation, and the search below must not run on to some later `\]` and
+    // swallow the paragraphs in between.
+    if first.contains(closer) {
+        return None;
+    }
 
     let mut source = String::from(first);
+    // A blank line inside an equation would end the Markdown block the
+    // equation lives in, so the delimiters no longer bracket one block. The
+    // equation is still held aside -- otherwise Comrak reads its `=` and `*`
+    // lines as headings and list items -- but it is put back verbatim: a
+    // blank line is a layout intent this formatter does not understand.
+    let mut blank = false;
     for (offset, line) in lines[open + 1..].iter().enumerate() {
         source.push('\n');
         // A fenced block can interrupt a paragraph, and its contents are not
@@ -332,13 +346,13 @@ fn block_at<'a>(
         if verbatim[open + 1 + offset].is_some() {
             return None;
         }
-        let line = strip_newline(line);
-        // A blank line ends the enclosing Markdown block, so the equation was
-        // never one block; leaving the container likewise ends it.
-        if line.trim().is_empty() {
-            return None;
+        // Leaving the container ends the equation. A blank line in a quote
+        // must still carry its `>` markers to stay inside it.
+        let content = strip_container(strip_newline(line), depth)?;
+        if content.trim().is_empty() {
+            blank = true;
+            continue;
         }
-        let content = strip_container(line, depth)?;
         let Some(at) = close_at(content, closer) else {
             // A delimiter with prose after it is not a block to reflow.
             if content.contains(closer) {
@@ -348,7 +362,11 @@ fn block_at<'a>(
             continue;
         };
         source.push_str(&content[..at]);
-        let body = format_block(&source, preferences);
+        let body = if blank {
+            trim_block(&source)
+        } else {
+            format_block(&source, preferences)
+        };
         return (!body.is_empty()).then_some((
             prefix,
             Held {
@@ -387,12 +405,11 @@ fn opening(line: &str) -> Option<(&str, &'static str, &'static str, &str)> {
         .find_map(|&(opener, closer)| Some((prefix, opener, closer, content.strip_prefix(opener)?)))
 }
 
-/// Apply the same layout rules the Markdown pass applies to inline math.
-///
-/// Whitespace picked up from the delimiter lines goes first: a `$$ ` opener
-/// must not leave a blank first line in an equation kept verbatim, which on a
-/// later run would read as the end of the block.
-fn format_block(source: &str, preferences: FormatOptions) -> String {
+/// Drop the whitespace an equation picked up from its delimiter lines, and
+/// nothing else. A `$$ ` opener must not leave a blank first line in an
+/// equation kept verbatim, which on a later run would read as a blank line
+/// inside the block.
+fn trim_block(source: &str) -> String {
     let lines: Vec<&str> = source.lines().map(str::trim_end).collect();
     let Some(first) = lines.iter().position(|line| !line.is_empty()) else {
         return String::new();
@@ -403,8 +420,15 @@ fn format_block(source: &str, preferences: FormatOptions) -> String {
         .unwrap_or(first);
     let mut body = lines[first..=last].to_vec();
     body[0] = body[0].trim_start();
-    let source = body.join("\n");
+    body.join("\n")
+}
 
+/// Apply the same layout rules the Markdown pass applies to inline math.
+fn format_block(source: &str, preferences: FormatOptions) -> String {
+    let source = trim_block(source);
+    if source.is_empty() {
+        return source;
+    }
     environments::format_environment(&source)
         .unwrap_or_else(|| {
             math::format_display_math(&source, preferences.math_style, preferences.math_width)
@@ -540,6 +564,19 @@ mod tests {
     }
 
     #[test]
+    fn keeps_an_equation_with_a_blank_line_verbatim_rather_than_reflowing_it() {
+        // The delimiters no longer bracket one Markdown block, so the layout
+        // the author meant by the blank line cannot be second-guessed; the
+        // equation is held aside only to keep `= a` and `* b` out of the
+        // block parser's hands.
+        assert_eq!(formatted("$$\n= a\n\n* b\n  $$\n"), "$$\n= a\n\n* b\n$$\n");
+        assert_eq!(
+            formatted("> $$\n> = a\n>\n> * b\n> $$\n"),
+            "> $$\n> = a\n>\n> * b\n> $$\n"
+        );
+    }
+
+    #[test]
     fn holds_inline_latex_spans_aside_but_not_code_escapes_or_dollar_math() {
         assert_eq!(protected("rate \\(\\alpha\\) here\n"), "rate @0@ here\n");
         assert_eq!(protected("\\(a\\) and \\(b\\)\n"), "@0@ and @1@\n");
@@ -564,6 +601,9 @@ mod tests {
             "$$\na\n=\nb\n",
             "$$\n\n$$\n",
             "$$\na\n=\nb\n> $$\n",
+            // The delimiters close on the opening line with prose after
+            // them: a later `\]` must not be read as this one's closer.
+            "\\[TODO: link\\].\n\nprose\n\nhere\\]\n",
         ] {
             assert_eq!(formatted(input), input, "{input:?}");
         }

@@ -116,6 +116,38 @@ fn a_document_keeps_its_own_line_endings() {
     assert!(!unix.contains('\r'), "actual: {unix:?}");
 }
 
+/// A blank line ends the Markdown block the equation lives in, so its `=` and
+/// `*` lines are left for the block parser to read as a heading and a list.
+/// Marklign holds such an equation aside and puts it back verbatim.
+#[test]
+fn a_blank_line_inside_an_equation_does_not_hand_it_to_the_block_parser() {
+    let output = formatted_once("$$\n= a\n\n* b\n  $$\n");
+    assert_eq!(output, "$$\n= a\n\n* b\n$$\n");
+
+    let tex = "$$\n\\frac{f(x+h) - f(x-h)}{2h}\n\n* \\text{error} = O(h^2)\n$$\n";
+    assert_eq!(formatted_once(tex), tex);
+}
+
+#[test]
+fn a_blank_line_is_survived_inside_quotes_lists_and_bracket_delimiters() {
+    for input in [
+        "> $$\n> = a\n>\n> * b\n> $$\n",
+        "- item\n\n  $$\n  = a\n\n  * b\n  $$\n",
+        "\\[\n= a\n\n* b\n\\]\n",
+    ] {
+        assert_eq!(formatted_once(input), input, "{input:?}");
+    }
+}
+
+/// Comrak escapes a prose bracket as `\[...\]`. Searching on past a blank
+/// line for a closing delimiter must not let a paragraph that merely ends in
+/// one swallow everything back to such a bracket.
+#[test]
+fn prose_brackets_do_not_open_an_equation_that_runs_on_past_a_blank_line() {
+    let input = "See the policy\n\\[TODO: write it, then link it\\].\n\nOther prose.\n\nReport it here.\\]\n";
+    assert_eq!(formatted_once(input), input);
+}
+
 /// A CommonMark parser reads `\(` as an escaped parenthesis: the delimiters
 /// vanish and the TeX between them is escaped as prose.
 #[test]
