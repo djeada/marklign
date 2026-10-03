@@ -323,7 +323,7 @@ fn wrap(tokens: &[Token<'_>], width: usize) -> Vec<String> {
 /// whatever the mathematics on it says. A line of nothing but `=` underlines
 /// the line above it as a heading, and a list, quote, or fence marker opens a
 /// block of its own.
-fn claimed_by_markdown(line: &str) -> bool {
+pub(crate) fn claimed_by_markdown(line: &str) -> bool {
     let line = line.trim();
     let Some(first) = line.chars().next() else {
         return false;
@@ -356,9 +356,7 @@ fn claimed_by_markdown(line: &str) -> bool {
 /// the `\end{...}` above it, which no renderer recovers from.
 pub(crate) fn join_claimed_lines(input: &str) -> String {
     let lines: Vec<&str> = input.lines().collect();
-    // The first line has nothing above it to join to, and is the delimiter's
-    // problem rather than this pass's.
-    if !lines.iter().skip(1).any(|line| claimed_by_markdown(line)) {
+    if !lines.iter().any(|line| claimed_by_markdown(line)) {
         return input.to_owned();
     }
     // A comment swallows whatever is joined onto its line, and `\verb` reads
@@ -378,6 +376,12 @@ pub(crate) fn join_claimed_lines(input: &str) -> String {
             }
             _ => joined.push(line.to_owned()),
         }
+    }
+    // The first line has nothing above it but the opening delimiter, which a
+    // lone `=` underlines as a heading. It takes the line below instead.
+    while joined.len() > 1 && claimed_by_markdown(&joined[0]) {
+        let next = joined.remove(1);
+        joined[0] = format!("{} {}", joined[0].trim(), next.trim_start());
     }
     joined.join("\n")
 }

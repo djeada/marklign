@@ -424,3 +424,18 @@ fn trailing_punctuation_is_stripped_unless_the_run_asks_to_keep_it() {
     assert!(run.ok(), "{}", run.stderr);
     assert_eq!(sandbox.read("kept.md"), "$$\nE = mc^2.\n$$\n");
 }
+
+#[test]
+fn a_one_line_equation_is_expanded_unless_the_run_asks_to_keep_it() {
+    let sandbox = Sandbox::new("one-line");
+    let path = sandbox.write("notes.md", "$$a = b$$\n");
+
+    let run = marklign([path.as_os_str()]);
+    assert!(run.ok(), "{}", run.stderr);
+    assert_eq!(sandbox.read("notes.md"), "$$\na = b\n$$\n");
+
+    let kept = sandbox.write("kept.md", "$$a = b$$\n");
+    let run = marklign([kept.as_os_str(), "--keep-one-line-math".as_ref()]);
+    assert!(run.ok(), "{}", run.stderr);
+    assert_eq!(sandbox.read("kept.md"), "$$a = b$$\n");
+}

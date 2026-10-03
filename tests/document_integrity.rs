@@ -1,7 +1,9 @@
 //! Whole-document guarantees: an equation must survive Markdown parsing, and
 //! prose must come back unchanged. Each case here is a defect Marklign had.
 
-use marklign::format_document;
+use marklign::{
+    FormatOptions, MathFences, OneLineMath, format_document, format_document_with_options,
+};
 
 /// Formatting twice must equal formatting once.
 fn formatted_once(input: &str) -> String {
@@ -30,7 +32,7 @@ fn an_isolated_minus_line_does_not_become_a_list_or_heading() {
 fn equations_inside_lists_and_quotes_keep_their_container() {
     assert_eq!(
         formatted_once("- item\n\n  $$\n  a\n  =\n  b\n  $$\n"),
-        "- item\n\n  $$\n  a = b\n  $$\n"
+        "- item\n\n  ```math\n  a = b\n  ```\n"
     );
     assert_eq!(
         formatted_once("> quote\n>\n> $$\n> a\n> =\n> b\n> $$\n"),
@@ -55,9 +57,19 @@ fn escaped_brackets_in_prose_are_not_mathematics() {
 }
 
 #[test]
-fn delimiters_move_onto_their_own_lines_only_when_the_equation_wraps() {
-    let short = "$$a = b$$\n";
-    assert_eq!(formatted_once(short), short);
+fn a_one_line_equation_moves_its_delimiters_onto_their_own_lines() {
+    // `$$...$$` inside a paragraph line is display math only to renderers
+    // that look for it there; GitHub's mobile app shows the TeX instead.
+    let input = "continuity:\n\n$$\\nabla \\cdot \\vec{v} = 0$$\n";
+    let output = formatted_once(input);
+    assert_eq!(
+        output,
+        "continuity:\n\n$$\n\\nabla \\cdot \\vec{v} = 0\n$$\n"
+    );
+    assert_eq!(formatted_once(&output), output);
+
+    assert_eq!(formatted_once("> $$a = b$$\n"), "> $$\n> a = b\n> $$\n");
+    assert_eq!(formatted_once("$$|x| = 1$$\n"), "$$\n|x| = 1\n$$\n");
 
     let long = format!("$$\\alpha = {}$$\n", "\\beta + ".repeat(12));
     let wrapped = formatted_once(&long);
@@ -72,9 +84,60 @@ fn delimiters_move_onto_their_own_lines_only_when_the_equation_wraps() {
 }
 
 #[test]
-fn a_hard_line_break_after_an_equation_is_kept() {
-    let output = formatted_once("It is written as:\n\n$$u = g$$  \nwhere $u$ is a solution.\n");
-    assert!(output.contains("$$u = g$$  \n"), "actual: {output:?}");
+fn a_one_line_equation_markdown_would_claim_stays_beside_its_delimiter() {
+    // Alone on a line, `* x` is a list item and `# x` a heading.
+    for input in ["$$* x$$\n", "$$# x$$\n", "$$> x$$\n"] {
+        assert_eq!(formatted_once(input), input, "{input:?}");
+    }
+}
+
+#[test]
+fn a_one_line_equation_stays_on_its_line_on_request() {
+    let preferences = FormatOptions {
+        one_line_math: OneLineMath::Keep,
+        ..FormatOptions::default()
+    };
+    let short = "$$a = b$$\n";
+    assert_eq!(
+        format_document_with_options(short, preferences).unwrap(),
+        short
+    );
+}
+
+#[test]
+fn a_block_is_a_paragraph_of_its_own() {
+    // GitHub leaves a `$$` block with prose directly above or below it as
+    // TeX source, so blank lines keep it apart, and a hard line break after
+    // it, which no longer continues a paragraph, goes.
+    assert_eq!(
+        formatted_once("It is written as:\n$$u = g$$  \nwhere $u$ is a solution.\n"),
+        "It is written as:\n\n$$\nu = g\n$$\n\nwhere $u$ is a solution.\n"
+    );
+    assert_eq!(
+        formatted_once("> q:\n> $$a = b$$\n> more\n"),
+        "> q:\n>\n> $$\n> a = b\n> $$\n>\n> more\n"
+    );
+    assert_eq!(
+        formatted_once("$$a = b$$\n$$c = d$$\n"),
+        "$$\na = b\n$$\n\n$$\nc = d\n$$\n"
+    );
+
+    // An equation kept on its one line still carries its hard break.
+    let preferences = FormatOptions {
+        one_line_math: OneLineMath::Keep,
+        ..FormatOptions::default()
+    };
+    let input = "It is written as:\n\n$$u = g$$  \nwhere $u$ is a solution.\n";
+    assert_eq!(
+        format_document_with_options(input, preferences).unwrap(),
+        input
+    );
+
+    // Before a blank line, or at the end, it is only trailing whitespace.
+    for input in ["$$u = g$$  \n\nwhere\n", "$$\nu = g\n$$  \n"] {
+        let output = formatted_once(input);
+        assert!(!output.contains("$$  "), "actual: {output:?}");
+    }
 }
 
 #[test]
@@ -225,7 +288,7 @@ fn a_commented_equation_is_not_rearranged_to_please_markdown() {
 #[test]
 fn a_sentence_period_after_an_equation_is_dropped() {
     assert_eq!(formatted_once("$$\nE = mc^2.\n$$\n"), "$$\nE = mc^2\n$$\n");
-    assert_eq!(formatted_once("$$a = b,$$\n"), "$$a = b$$\n");
+    assert_eq!(formatted_once("$$a = b,$$\n"), "$$\na = b\n$$\n");
     assert_eq!(
         formatted_once("$$\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}.\n$$\n"),
         "$$\n\\begin{aligned}\n  a &= b \\\\\n  c &= d\n\\end{aligned}\n$$\n"
@@ -237,9 +300,9 @@ fn a_sentence_period_after_an_equation_is_dropped() {
 #[test]
 fn punctuation_that_is_mathematics_is_kept() {
     for input in [
-        "$$x \\,$$\n",
-        "$$1 + 2 + ...$$\n",
-        "$$\\text{ends in a period.}$$\n",
+        "$$\nx \\,\n$$\n",
+        "$$\n1 + 2 + ...\n$$\n",
+        "$$\n\\text{ends in a period.}\n$$\n",
     ] {
         assert_eq!(formatted_once(input), input, "{input:?}");
     }
@@ -247,6 +310,50 @@ fn punctuation_that_is_mathematics_is_kept() {
     // `.`, which `\right` needs and which must survive.
     assert_eq!(
         formatted_once("$$\\left( a \\right.$$\n"),
-        "$$\\left(a \\right.$$\n"
+        "$$\n\\left(a \\right.\n$$\n"
+    );
+}
+
+#[test]
+fn a_leading_equals_line_does_not_make_a_heading_of_the_delimiter() {
+    // `$$` over a lone `=` is a setext heading holding the opening delimiter.
+    let input = "$$\n=\n\\begin{pmatrix}\na\n\\end{pmatrix}\n$$\n";
+    assert_eq!(
+        formatted_once(input),
+        "$$\n= \\begin{pmatrix}\na\n\\end{pmatrix}\n$$\n"
+    );
+    // With nothing below to take it, a claimed line stays beside the opener.
+    assert_eq!(formatted_once("$$\n* x\n$$\n"), "$$* x$$\n");
+}
+
+/// Inside a list item or a `<details>` block GitHub reads `$$` as inline
+/// math and parses the TeX as prose first; only a `math` fence renders there.
+#[test]
+fn equations_in_lists_and_details_become_math_fences() {
+    assert_eq!(
+        formatted_once("1. x\n\n   $$\n   a_i\n   =\n   b_j + c\n   $$\n"),
+        "1. x\n\n   ```math\n   a_i = b_j + c\n   ```\n"
+    );
+    assert_eq!(
+        formatted_once(
+            "<details>\n<summary>A</summary>\n\n$$\nx = y\n$$\n\n</details>\n\n$$a = b$$\n"
+        ),
+        "<details>\n<summary>A</summary>\n\n```math\nx = y\n```\n\n</details>\n\n$$\na = b\n$$\n"
+    );
+    // A block quote is not a list item: the `$$` block renders there.
+    assert_eq!(formatted_once("> $$a = b$$\n"), "> $$\n> a = b\n> $$\n");
+    // `\[...\]` is the author's choice of delimiters, and is left as such.
+    assert_eq!(
+        formatted_once("- x\n\n  \\[a = b\\]\n"),
+        "- x\n\n  \\[\n  a = b\n  \\]\n"
+    );
+
+    let preferences = FormatOptions {
+        math_fences: MathFences::Never,
+        ..FormatOptions::default()
+    };
+    assert_eq!(
+        format_document_with_options("- x\n\n  $$a = b$$\n", preferences).unwrap(),
+        "- x\n\n  $$\n  a = b\n  $$\n"
     );
 }

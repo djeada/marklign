@@ -4,6 +4,34 @@ All notable changes to marklign are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- A display equation written on one line, `$$a = b$$`, now has its delimiters
+  moved onto lines of their own. Inside a paragraph line `$$` is display math
+  only to renderers that look for it there; GitHub's mobile app shows the TeX
+  source instead. `--keep-one-line-math` restores the previous behavior. An
+  equation whose first line Markdown would claim on its own (`* x`, `# x`)
+  stays beside its delimiter.
+- A `$$` equation inside a list item or a `<details>` block is written as a
+  ` ```math ` fence, the only form GitHub renders there: it reads `$$`
+  in those places as inline math, leaving a block as TeX source and parsing
+  the TeX of a one-line equation as Markdown, so subscripts turn into
+  emphasis. `--no-math-fences` keeps `$$`.
+- A `$$` block is set apart from the prose around it by blank lines; GitHub
+  does not render one that shares a paragraph with text. A hard line break
+  after it, which no longer continues a paragraph, is dropped.
+
+### Fixed
+
+- A lone `=` as the first line of an equation no longer underlines the
+  opening `$$` as a setext heading; it is joined to the line below.
+- Escapes the Markdown serializer adds without need, such as `### 1\.`,
+  `![a\_b]`, `\~` and `\>`, are removed where the document renders to the
+  same HTML without them, and so is an `<!-- end list -->` separator where a
+  change of list type already keeps two lists apart.
+
 ## 0.3.0 - 2026-09-21
 
 Mathematics reaches the renderer as mathematics.
