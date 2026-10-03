@@ -15,7 +15,7 @@ All notable changes to marklign are recorded here. The format follows
   equation whose first line Markdown would claim on its own (`* x`, `# x`)
   stays beside its delimiter.
 - A `$$` equation inside a list item or a `<details>` block is written as a
-  ```` ```math ```` fence, the only form GitHub renders there: it reads `$$`
+  ` ```math ` fence, the only form GitHub renders there: it reads `$$`
   in those places as inline math, leaving a block as TeX source and parsing
   the TeX of a one-line equation as Markdown, so subscripts turn into
   emphasis. `--no-math-fences` keeps `$$`.
