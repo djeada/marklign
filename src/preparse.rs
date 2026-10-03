@@ -107,13 +107,40 @@ impl BlockMath {
         let mut output = String::with_capacity(rendered.len());
         let mut restored = vec![false; self.blocks.len()];
 
+        // GitHub renders a `$$` block only as a paragraph of its own: with
+        // prose directly above or below, it leaves the TeX as text. A block
+        // is therefore kept apart from its neighbours by blank lines, which
+        // carry the container's quote markers.
+        let mut blank_before_next: Option<String> = None;
         for line in rendered.split_inclusive('\n') {
+            if let Some(blank) = blank_before_next.take() {
+                if !is_blank_in_container(line) {
+                    output.push_str(&blank);
+                    output.push('\n');
+                }
+            }
             match self.placeholder(strip_newline(line)) {
                 Some((prefix, position)) => {
                     let held = &self.blocks[position];
+                    let one_line = held.one_line && !held.body.contains('\n');
+                    let block = !(held.fenced(prefix) || one_line);
+                    let continuation = continuation_prefix(prefix);
+                    if block {
+                        let above = output
+                            .strip_suffix('\n')
+                            .unwrap_or(&output)
+                            .rsplit('\n')
+                            .next()
+                            .unwrap_or("");
+                        if !output.is_empty() && !is_blank_in_container(above) {
+                            output.push_str(continuation.trim_end());
+                            output.push('\n');
+                        }
+                        blank_before_next = Some(continuation.trim_end().to_owned());
+                    }
                     if held.fenced(prefix) {
                         push_fenced(&mut output, prefix, held);
-                    } else if held.one_line && !held.body.contains('\n') {
+                    } else if one_line {
                         output.push_str(prefix);
                         output.push_str(held.opener);
                         output.push_str(&held.body);
@@ -121,7 +148,6 @@ impl BlockMath {
                     } else {
                         // A list marker belongs to the first line only;
                         // indentation and quote markers repeat below it.
-                        let continuation = continuation_prefix(prefix);
                         // A first line Markdown would claim on its own, with
                         // nothing below to join, stays beside the opener.
                         let mut body = held.body.lines().peekable();
@@ -141,7 +167,9 @@ impl BlockMath {
                         output.push_str(&continuation);
                         output.push_str(held.closer);
                     }
-                    if held.hard_break && !held.fenced(prefix) {
+                    // Below a block comes a blank line, which ends the
+                    // paragraph a hard break would have continued.
+                    if held.hard_break && !held.fenced(prefix) && !block {
                         output.push_str("  ");
                     }
                     output.push('\n');
@@ -196,6 +224,12 @@ fn push_fenced(output: &mut String, prefix: &str, held: &Held) {
     }
     output.push_str(&continuation);
     output.push_str(&fence);
+}
+
+/// A line holding nothing but container markers and whitespace.
+fn is_blank_in_container(line: &str) -> bool {
+    line.trim_start_matches(|ch: char| ch == '>' || ch.is_whitespace())
+        .is_empty()
 }
 
 /// Whether a container prefix belongs to a list item rather than only to

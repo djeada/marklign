@@ -19,13 +19,14 @@ All notable changes to marklign are recorded here. The format follows
   in those places as inline math, leaving a block as TeX source and parsing
   the TeX of a one-line equation as Markdown, so subscripts turn into
   emphasis. `--no-math-fences` keeps `$$`.
+- A `$$` block is set apart from the prose around it by blank lines; GitHub
+  does not render one that shares a paragraph with text. A hard line break
+  after it, which no longer continues a paragraph, is dropped.
 
 ### Fixed
 
 - A lone `=` as the first line of an equation no longer underlines the
   opening `$$` as a setext heading; it is joined to the line below.
-- Two trailing spaces after a closing delimiter are dropped when no
-  paragraph follows: they are trailing whitespace, not a line break.
 - Escapes the Markdown serializer adds without need, such as `### 1\.`,
   `![a\_b]`, `\~` and `\>`, are removed where the document renders to the
   same HTML without them, and so is an `<!-- end list -->` separator where a

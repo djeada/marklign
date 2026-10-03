@@ -105,9 +105,33 @@ fn a_one_line_equation_stays_on_its_line_on_request() {
 }
 
 #[test]
-fn a_hard_line_break_after_an_equation_is_kept() {
-    let output = formatted_once("It is written as:\n\n$$u = g$$  \nwhere $u$ is a solution.\n");
-    assert!(output.contains("$$\nu = g\n$$  \n"), "actual: {output:?}");
+fn a_block_is_a_paragraph_of_its_own() {
+    // GitHub leaves a `$$` block with prose directly above or below it as
+    // TeX source, so blank lines keep it apart, and a hard line break after
+    // it, which no longer continues a paragraph, goes.
+    assert_eq!(
+        formatted_once("It is written as:\n$$u = g$$  \nwhere $u$ is a solution.\n"),
+        "It is written as:\n\n$$\nu = g\n$$\n\nwhere $u$ is a solution.\n"
+    );
+    assert_eq!(
+        formatted_once("> q:\n> $$a = b$$\n> more\n"),
+        "> q:\n>\n> $$\n> a = b\n> $$\n>\n> more\n"
+    );
+    assert_eq!(
+        formatted_once("$$a = b$$\n$$c = d$$\n"),
+        "$$\na = b\n$$\n\n$$\nc = d\n$$\n"
+    );
+
+    // An equation kept on its one line still carries its hard break.
+    let preferences = FormatOptions {
+        one_line_math: OneLineMath::Keep,
+        ..FormatOptions::default()
+    };
+    let input = "It is written as:\n\n$$u = g$$  \nwhere $u$ is a solution.\n";
+    assert_eq!(
+        format_document_with_options(input, preferences).unwrap(),
+        input
+    );
 
     // Before a blank line, or at the end, it is only trailing whitespace.
     for input in ["$$u = g$$  \n\nwhere\n", "$$\nu = g\n$$  \n"] {
