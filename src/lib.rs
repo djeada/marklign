@@ -1,6 +1,7 @@
 //! Opinionated Markdown formatting with syntax-aware display-math layout.
 
 mod environments;
+mod escapes;
 mod math;
 mod preparse;
 
@@ -28,6 +29,20 @@ pub enum TrailingPunctuation {
     Keep,
 }
 
+/// Where Marklign puts the delimiters of a display equation written on one
+/// line, such as `$$a = b$$`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum OneLineMath {
+    /// Move them onto lines of their own. A `$$` run in the middle of a
+    /// paragraph line is display math only to renderers that look for it
+    /// there: GitHub's web view does, but its mobile app, many editors' and
+    /// static-site previews show the TeX source instead.
+    #[default]
+    Expand,
+    /// Leave the equation on its one line as long as it still fits.
+    Keep,
+}
+
 /// Narrowest accepted `math_width`; below this even short terms cannot fit.
 pub const MIN_MATH_WIDTH: usize = 20;
 
@@ -40,6 +55,7 @@ pub struct FormatOptions {
     pub math_style: MathStyle,
     pub math_width: usize,
     pub trailing_punctuation: TrailingPunctuation,
+    pub one_line_math: OneLineMath,
 }
 
 impl Default for FormatOptions {
@@ -48,6 +64,7 @@ impl Default for FormatOptions {
             math_style: MathStyle::Readable,
             math_width: DEFAULT_MATH_WIDTH,
             trailing_punctuation: TrailingPunctuation::Strip,
+            one_line_math: OneLineMath::Expand,
         }
     }
 }
@@ -91,6 +108,7 @@ pub fn format_document_with_options(
         // document with an equation missing, format without extraction.
         None => render(input, preferences, &options)?,
     };
+    let output = escapes::tidy(&output, &options);
     Ok(with_line_endings_of(output, input))
 }
 

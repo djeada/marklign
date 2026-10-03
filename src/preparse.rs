@@ -10,7 +10,7 @@
 
 use comrak::{Arena, Options, nodes::NodeValue, parse_document};
 
-use crate::FormatOptions;
+use crate::{FormatOptions, OneLineMath};
 
 /// A document whose standalone display-math blocks have been set aside.
 pub(crate) struct BlockMath {
@@ -26,8 +26,10 @@ struct Held {
     opener: &'static str,
     closer: &'static str,
     body: String,
-    /// The source kept the delimiters on the equation's own line, which is
-    /// honored as long as the formatted equation still fits on one line.
+    /// The delimiters stay on the equation's own line, as long as the
+    /// formatted equation still fits on one: the source put them there and
+    /// the run asked to keep them, or its one line is one Markdown would
+    /// claim without a delimiter beside it.
     one_line: bool,
     /// The closing delimiter carried a trailing hard line break.
     hard_break: bool,
@@ -102,9 +104,17 @@ impl BlockMath {
                         // A list marker belongs to the first line only;
                         // indentation and quote markers repeat below it.
                         let continuation = continuation_prefix(prefix);
-                        for (offset, body_line) in std::iter::once(held.opener)
-                            .chain(held.body.lines())
-                            .enumerate()
+                        // A first line Markdown would claim on its own, with
+                        // nothing below to join, stays beside the opener.
+                        let mut body = held.body.lines().peekable();
+                        let opener = match body.peek() {
+                            Some(first) if claimed_beside_opener(first) => {
+                                format!("{}{}", held.opener, body.next().unwrap_or_default())
+                            }
+                            _ => held.opener.to_owned(),
+                        };
+                        for (offset, body_line) in
+                            std::iter::once(opener.as_str()).chain(body).enumerate()
                         {
                             let prefix = if offset == 0 { prefix } else { &continuation };
                             output.push_str(format!("{prefix}{body_line}").trim_end());
@@ -312,14 +322,16 @@ fn block_at<'a>(
     // second run of the formatter from finding anything left to change.
     if let Some(at) = close_at(first, closer) {
         let body = format_block(&first[..at], preferences);
+        let one_line = preferences.one_line_math == OneLineMath::Keep || claimed_alone(&body);
         return (!body.is_empty()).then_some((
             prefix,
             Held {
                 opener,
                 closer,
                 body,
-                one_line: true,
-                hard_break: is_hard_break(&first[at + closer.len()..]),
+                one_line,
+                hard_break: is_hard_break(&first[at + closer.len()..])
+                    && continues(lines, open, depth),
             },
             open,
         ));
@@ -380,9 +392,10 @@ fn block_at<'a>(
             Held {
                 opener,
                 closer,
+                one_line: claimed_alone(&body),
                 body,
-                one_line: false,
-                hard_break: is_hard_break(&content[at + closer.len()..]),
+                hard_break: is_hard_break(&content[at + closer.len()..])
+                    && continues(lines, open + 1 + offset, depth),
             },
             open + 1 + offset,
         ));
@@ -390,10 +403,33 @@ fn block_at<'a>(
     None
 }
 
+/// Whether a one-line equation body must stay beside its delimiters. On a
+/// line of its own, `* x` would be a list item and `# x` a heading. A leading
+/// `|`, as in `|x| = 1`, opens a table only above a delimiter row, and the
+/// line below a one-line body is the closing `$$`.
+fn claimed_alone(body: &str) -> bool {
+    !body.contains('\n') && claimed_beside_opener(body)
+}
+
+/// A first equation line Markdown would claim under the opening delimiter.
+/// TeX does not put a table's delimiter row below a leading `|`.
+fn claimed_beside_opener(line: &str) -> bool {
+    crate::math::claimed_by_markdown(line) && !line.trim_start().starts_with('|')
+}
+
 /// Two trailing spaces after the closing delimiter are a Markdown hard line
 /// break, which is content rather than stray whitespace. A tab is not.
 fn is_hard_break(trailing: &str) -> bool {
     trailing.chars().filter(|&ch| ch == ' ').count() >= 2
+}
+
+/// Whether the paragraph goes on past line `last`. Only then is a hard line
+/// break after it a break rather than trailing whitespace.
+fn continues(lines: &[&str], last: usize, depth: usize) -> bool {
+    lines
+        .get(last + 1)
+        .and_then(|line| strip_container(strip_newline(line), depth))
+        .is_some_and(|content| !content.trim().is_empty())
 }
 
 /// Offset of a closing delimiter that ends its line, or `None`.

@@ -6,7 +6,9 @@ use std::{
 };
 
 use clap::{Parser, ValueEnum};
-use marklign::{DEFAULT_MATH_WIDTH, FormatOptions, MIN_MATH_WIDTH, MathStyle, TrailingPunctuation};
+use marklign::{
+    DEFAULT_MATH_WIDTH, FormatOptions, MIN_MATH_WIDTH, MathStyle, OneLineMath, TrailingPunctuation,
+};
 use similar::TextDiff;
 
 mod paths;
@@ -73,6 +75,10 @@ struct Args {
     /// Keep the sentence `.` or `,` an author left at the end of a display equation.
     #[arg(long)]
     keep_trailing_punctuation: bool,
+
+    /// Leave a display equation written on one line, such as `$$a = b$$`, on that line.
+    #[arg(long)]
+    keep_one_line_math: bool,
 
     /// Regular expression for the files a directory walk formats.
     #[arg(long, default_value = DEFAULT_INCLUDE, value_name = "REGEX")]
@@ -310,6 +316,11 @@ fn run() -> Result<ExitCode, String> {
             TrailingPunctuation::Keep
         } else {
             TrailingPunctuation::Strip
+        },
+        one_line_math: if args.keep_one_line_math {
+            OneLineMath::Keep
+        } else {
+            OneLineMath::Expand
         },
     };
     let filters = Filters::new(

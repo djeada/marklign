@@ -84,7 +84,7 @@ Only where it really is punctuation: `\,` is a thin space, `\right.` an invisibl
 ## Delimiters and block shape
 
 - `$$...$$` and `\[...\]` blocks are both recognized, and each keeps the delimiters the author chose. Marklign reflows mathematics; it does not restyle delimiters.
-- An equation written as a block keeps its delimiters on their own lines. An equation written on one line stays on one line, unless reflowing it no longer fits, in which case the delimiters move onto their own lines.
+- Display delimiters go on lines of their own. An equation written on one line, `$$a = b$$`, is display math only to renderers that look for `$$` inside a paragraph line: GitHub's web view does, but its mobile app and many editors and site generators show the TeX source instead. `--keep-one-line-math` leaves such an equation on its line as long as it still fits. An equation whose first line would be claimed by Markdown on its own — `* x`, `# x` — stays beside its delimiter either way.
 - Equations inside list items and block quotes are formatted too, and come back with their container's indentation or `>` markers.
 - Inline math (`$...$`) and the interiors of braced arguments are never touched.
 - Inline `\(...\)` spans are preserved character for character. CommonMark reads `\(` as an escaped parenthesis, so a formatter that does nothing special turns `\(\alpha\)` into `(\\alpha)` — prose where there was mathematics. Marklign holds these spans aside during parsing and puts them back exactly as written, without restyling them into `$...$`. Inline code, `$`-delimited math, and a genuine `\\(` escape are not spans and are left alone.
@@ -165,6 +165,7 @@ cat notes.md | marklign -           # standard input to standard output
 marklign notes.md --math-style compact
 marklign notes.md --math-width 72
 marklign notes.md --keep-trailing-punctuation
+marklign notes.md --keep-one-line-math
 ```
 
 Marklign runs the way Black does: files are reformatted **in place** by default, and a file that already agrees with the formatter is not rewritten, so it keeps its modification time.
@@ -183,6 +184,7 @@ reformatted docs/intro.md
 - `--math-style readable|compact` selects layout for ordinary equations; default: `readable`. Environment rows use compact layout to preserve explicit alignment.
 - `--math-width N` controls preferred ordinary display-equation source width; default: `88`, minimum: `20`. Indivisible tokens, environment rows, and equations whose safe breakpoints do not fit may exceed it.
 - `--keep-trailing-punctuation` keeps the sentence `.` or `,` at the end of a display equation, which is otherwise dropped.
+- `--keep-one-line-math` keeps a display equation written on one line, such as `$$a = b$$`, on that line; by default its delimiters move onto lines of their own.
 
 ### Which files a directory walk formats
 

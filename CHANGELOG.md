@@ -4,6 +4,17 @@ All notable changes to marklign are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- A display equation written on one line, `$$a = b$$`, now has its delimiters
+  moved onto lines of their own. Inside a paragraph line `$$` is display math
+  only to renderers that look for it there; GitHub's mobile app shows the TeX
+  source instead. `--keep-one-line-math` restores the previous behavior. An
+  equation whose first line Markdown would claim on its own (`* x`, `# x`)
+  stays beside its delimiter.
+
 ## 0.3.0 - 2026-09-21
 
 Mathematics reaches the renderer as mathematics.
