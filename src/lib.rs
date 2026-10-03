@@ -43,6 +43,18 @@ pub enum OneLineMath {
     Keep,
 }
 
+/// Whether Marklign writes display equations as ```` ```math ```` fences
+/// where GitHub cannot render a `$$` block.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MathFences {
+    /// Inside list items and `<details>` blocks, where GitHub reads `$$` as
+    /// inline math and parses the TeX as prose first.
+    #[default]
+    Nested,
+    /// Never: keep `$$` everywhere, for renderers without `math` fences.
+    Never,
+}
+
 /// Narrowest accepted `math_width`; below this even short terms cannot fit.
 pub const MIN_MATH_WIDTH: usize = 20;
 
@@ -56,6 +68,7 @@ pub struct FormatOptions {
     pub math_width: usize,
     pub trailing_punctuation: TrailingPunctuation,
     pub one_line_math: OneLineMath,
+    pub math_fences: MathFences,
 }
 
 impl Default for FormatOptions {
@@ -65,6 +78,7 @@ impl Default for FormatOptions {
             math_width: DEFAULT_MATH_WIDTH,
             trailing_punctuation: TrailingPunctuation::Strip,
             one_line_math: OneLineMath::Expand,
+            math_fences: MathFences::Nested,
         }
     }
 }

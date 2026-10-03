@@ -1,7 +1,9 @@
 //! Whole-document guarantees: an equation must survive Markdown parsing, and
 //! prose must come back unchanged. Each case here is a defect Marklign had.
 
-use marklign::{FormatOptions, OneLineMath, format_document, format_document_with_options};
+use marklign::{
+    FormatOptions, MathFences, OneLineMath, format_document, format_document_with_options,
+};
 
 /// Formatting twice must equal formatting once.
 fn formatted_once(input: &str) -> String {
@@ -30,7 +32,7 @@ fn an_isolated_minus_line_does_not_become_a_list_or_heading() {
 fn equations_inside_lists_and_quotes_keep_their_container() {
     assert_eq!(
         formatted_once("- item\n\n  $$\n  a\n  =\n  b\n  $$\n"),
-        "- item\n\n  $$\n  a = b\n  $$\n"
+        "- item\n\n  ```math\n  a = b\n  ```\n"
     );
     assert_eq!(
         formatted_once("> quote\n>\n> $$\n> a\n> =\n> b\n> $$\n"),
@@ -298,4 +300,36 @@ fn a_leading_equals_line_does_not_make_a_heading_of_the_delimiter() {
     );
     // With nothing below to take it, a claimed line stays beside the opener.
     assert_eq!(formatted_once("$$\n* x\n$$\n"), "$$* x$$\n");
+}
+
+/// Inside a list item or a `<details>` block GitHub reads `$$` as inline
+/// math and parses the TeX as prose first; only a `math` fence renders there.
+#[test]
+fn equations_in_lists_and_details_become_math_fences() {
+    assert_eq!(
+        formatted_once("1. x\n\n   $$\n   a_i\n   =\n   b_j + c\n   $$\n"),
+        "1. x\n\n   ```math\n   a_i = b_j + c\n   ```\n"
+    );
+    assert_eq!(
+        formatted_once(
+            "<details>\n<summary>A</summary>\n\n$$\nx = y\n$$\n\n</details>\n\n$$a = b$$\n"
+        ),
+        "<details>\n<summary>A</summary>\n\n```math\nx = y\n```\n\n</details>\n\n$$\na = b\n$$\n"
+    );
+    // A block quote is not a list item: the `$$` block renders there.
+    assert_eq!(formatted_once("> $$a = b$$\n"), "> $$\n> a = b\n> $$\n");
+    // `\[...\]` is the author's choice of delimiters, and is left as such.
+    assert_eq!(
+        formatted_once("- x\n\n  \\[a = b\\]\n"),
+        "- x\n\n  \\[\n  a = b\n  \\]\n"
+    );
+
+    let preferences = FormatOptions {
+        math_fences: MathFences::Never,
+        ..FormatOptions::default()
+    };
+    assert_eq!(
+        format_document_with_options("- x\n\n  $$a = b$$\n", preferences).unwrap(),
+        "- x\n\n  $$\n  a = b\n  $$\n"
+    );
 }

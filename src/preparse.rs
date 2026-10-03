@@ -10,7 +10,7 @@
 
 use comrak::{Arena, Options, nodes::NodeValue, parse_document};
 
-use crate::{FormatOptions, OneLineMath};
+use crate::{FormatOptions, MathFences, OneLineMath};
 
 /// A document whose standalone display-math blocks have been set aside.
 pub(crate) struct BlockMath {
@@ -33,6 +33,13 @@ struct Held {
     one_line: bool,
     /// The closing delimiter carried a trailing hard line break.
     hard_break: bool,
+    /// The body was kept verbatim around a blank line, so it must keep its
+    /// delimiters on lines of their own.
+    verbatim: bool,
+    /// The equation sits between `<details>` and `</details>`.
+    in_details: bool,
+    /// The run allows `$$` equations to become ```` ```math ```` fences.
+    fence_allowed: bool,
 }
 
 /// Recognized display-math delimiter pairs.
@@ -55,10 +62,19 @@ pub(crate) fn extract(input: &str, preferences: FormatOptions, options: &Options
     let mut text = String::with_capacity(input.len());
     let mut blocks = Vec::new();
     let mut index = 0;
+    let mut details = 0usize;
 
     while index < lines.len() {
+        if verbatim[index] == Some(Verbatim::Html) {
+            let line = lines[index].to_ascii_lowercase();
+            details = (details + line.matches("<details").count())
+                .saturating_sub(line.matches("</details").count());
+        }
         if verbatim[index].is_none() {
-            if let Some((prefix, held, end)) = block_at(&lines, index, &verbatim, preferences) {
+            if let Some((prefix, mut held, end)) = block_at(&lines, index, &verbatim, preferences) {
+                held.in_details = details > 0;
+                held.fence_allowed =
+                    held.opener == "$$" && preferences.math_fences == MathFences::Nested;
                 text.push_str(prefix);
                 text.push_str(&token);
                 text.push_str(&blocks.len().to_string());
@@ -95,7 +111,9 @@ impl BlockMath {
             match self.placeholder(strip_newline(line)) {
                 Some((prefix, position)) => {
                     let held = &self.blocks[position];
-                    if held.one_line && !held.body.contains('\n') {
+                    if held.fenced(prefix) {
+                        push_fenced(&mut output, prefix, held);
+                    } else if held.one_line && !held.body.contains('\n') {
                         output.push_str(prefix);
                         output.push_str(held.opener);
                         output.push_str(&held.body);
@@ -123,7 +141,7 @@ impl BlockMath {
                         output.push_str(&continuation);
                         output.push_str(held.closer);
                     }
-                    if held.hard_break {
+                    if held.hard_break && !held.fenced(prefix) {
                         output.push_str("  ");
                     }
                     output.push('\n');
@@ -147,6 +165,47 @@ impl BlockMath {
         let position: usize = rest[self.token.len()..].trim_end().parse().ok()?;
         (position < self.blocks.len()).then_some((prefix, position))
     }
+}
+
+impl Held {
+    /// Whether the equation is written as a ```` ```math ```` fence. GitHub
+    /// renders a `$$` block at the top level, in a block quote, or in a
+    /// `<div>`, but inside a list item or a `<details>` block it reads `$$`
+    /// as inline math: a block whose delimiters stand alone stays TeX
+    /// source, and one whose delimiters touch the mathematics is parsed as
+    /// prose first, so `\mathbf{u}_i, \mathbf{u}_j` loses its subscripts to
+    /// emphasis. A fence is never parsed as prose.
+    fn fenced(&self, prefix: &str) -> bool {
+        self.fence_allowed && !self.verbatim && (self.in_details || in_list_item(prefix))
+    }
+}
+
+/// Write an equation as a ```` ```math ```` fence in its container.
+fn push_fenced(output: &mut String, prefix: &str, held: &Held) {
+    let continuation = continuation_prefix(prefix);
+    let mut fence = String::from("```");
+    while held.body.contains(&fence) {
+        fence.push('`');
+    }
+    output.push_str(prefix);
+    output.push_str(&fence);
+    output.push_str("math\n");
+    for line in held.body.lines() {
+        output.push_str(format!("{continuation}{line}").trim_end());
+        output.push('\n');
+    }
+    output.push_str(&continuation);
+    output.push_str(&fence);
+}
+
+/// Whether a container prefix belongs to a list item rather than only to
+/// block quotes: anything left once each `>` and the space after it go.
+fn in_list_item(prefix: &str) -> bool {
+    let mut rest = prefix;
+    while let Some(after) = rest.strip_prefix('>') {
+        rest = after.strip_prefix(' ').unwrap_or(after);
+    }
+    !rest.is_empty()
 }
 
 /// A document whose inline `\(...\)` math spans have been set aside.
@@ -332,6 +391,9 @@ fn block_at<'a>(
                 one_line,
                 hard_break: is_hard_break(&first[at + closer.len()..])
                     && continues(lines, open, depth),
+                verbatim: false,
+                in_details: false,
+                fence_allowed: false,
             },
             open,
         ));
@@ -396,6 +458,9 @@ fn block_at<'a>(
                 body,
                 hard_break: is_hard_break(&content[at + closer.len()..])
                     && continues(lines, open + 1 + offset, depth),
+                verbatim: blank,
+                in_details: false,
+                fence_allowed: false,
             },
             open + 1 + offset,
         ));
@@ -584,9 +649,10 @@ mod tests {
             formatted("> $$\n> a\n> =\n> b\n> $$\n"),
             "> $$\n> a = b\n> $$\n"
         );
+        // Inside a list item GitHub renders only a `math` fence.
         assert_eq!(
             formatted("  $$\n  a\n  =\n  b\n  $$\n"),
-            "  $$\n  a = b\n  $$\n"
+            "  ```math\n  a = b\n  ```\n"
         );
     }
 

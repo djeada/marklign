@@ -14,6 +14,22 @@ All notable changes to marklign are recorded here. The format follows
   source instead. `--keep-one-line-math` restores the previous behavior. An
   equation whose first line Markdown would claim on its own (`* x`, `# x`)
   stays beside its delimiter.
+- A `$$` equation inside a list item or a `<details>` block is written as a
+  ```` ```math ```` fence, the only form GitHub renders there: it reads `$$`
+  in those places as inline math, leaving a block as TeX source and parsing
+  the TeX of a one-line equation as Markdown, so subscripts turn into
+  emphasis. `--no-math-fences` keeps `$$`.
+
+### Fixed
+
+- A lone `=` as the first line of an equation no longer underlines the
+  opening `$$` as a setext heading; it is joined to the line below.
+- Two trailing spaces after a closing delimiter are dropped when no
+  paragraph follows: they are trailing whitespace, not a line break.
+- Escapes the Markdown serializer adds without need, such as `### 1\.`,
+  `![a\_b]`, `\~` and `\>`, are removed where the document renders to the
+  same HTML without them, and so is an `<!-- end list -->` separator where a
+  change of list type already keeps two lists apart.
 
 ## 0.3.0 - 2026-09-21
 

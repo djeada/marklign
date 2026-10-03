@@ -7,7 +7,8 @@ use std::{
 
 use clap::{Parser, ValueEnum};
 use marklign::{
-    DEFAULT_MATH_WIDTH, FormatOptions, MIN_MATH_WIDTH, MathStyle, OneLineMath, TrailingPunctuation,
+    DEFAULT_MATH_WIDTH, FormatOptions, MIN_MATH_WIDTH, MathFences, MathStyle, OneLineMath,
+    TrailingPunctuation,
 };
 use similar::TextDiff;
 
@@ -79,6 +80,10 @@ struct Args {
     /// Leave a display equation written on one line, such as `$$a = b$$`, on that line.
     #[arg(long)]
     keep_one_line_math: bool,
+
+    /// Keep `$$` equations in list items and `<details>` rather than writing ```math fences.
+    #[arg(long)]
+    no_math_fences: bool,
 
     /// Regular expression for the files a directory walk formats.
     #[arg(long, default_value = DEFAULT_INCLUDE, value_name = "REGEX")]
@@ -321,6 +326,11 @@ fn run() -> Result<ExitCode, String> {
             OneLineMath::Keep
         } else {
             OneLineMath::Expand
+        },
+        math_fences: if args.no_math_fences {
+            MathFences::Never
+        } else {
+            MathFences::Nested
         },
     };
     let filters = Filters::new(
