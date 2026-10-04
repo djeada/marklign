@@ -74,7 +74,7 @@ pub(crate) fn extract(input: &str, preferences: FormatOptions, options: &Options
             if let Some((prefix, mut held, end)) = block_at(&lines, index, &verbatim, preferences) {
                 held.in_details = details > 0;
                 held.fence_allowed =
-                    held.opener == "$$" && preferences.math_fences == MathFences::Nested;
+                    held.opener == "$$" && preferences.math_fences == MathFences::Needed;
                 text.push_str(prefix);
                 text.push_str(&token);
                 text.push_str(&blocks.len().to_string());
@@ -202,9 +202,15 @@ impl Held {
     /// as inline math: a block whose delimiters stand alone stays TeX
     /// source, and one whose delimiters touch the mathematics is parsed as
     /// prose first, so `\mathbf{u}_i, \mathbf{u}_j` loses its subscripts to
-    /// emphasis. A fence is never parsed as prose.
+    /// emphasis. Wherever it renders a block, it reads the TeX as Markdown
+    /// first too, so an equation holding `\,` or two `*` is fenced as well.
+    /// A fence is never parsed as prose.
     fn fenced(&self, prefix: &str) -> bool {
-        self.fence_allowed && !self.verbatim && (self.in_details || in_list_item(prefix))
+        self.fence_allowed
+            && !self.verbatim
+            && (self.in_details
+                || in_list_item(prefix)
+                || crate::github::display_reads_as_markdown(&self.body))
     }
 }
 

@@ -2,6 +2,7 @@
 
 mod environments;
 mod escapes;
+mod github;
 mod math;
 mod preparse;
 
@@ -43,15 +44,22 @@ pub enum OneLineMath {
     Keep,
 }
 
-/// Whether Marklign writes display equations as ```` ```math ```` fences
-/// where GitHub cannot render a `$$` block.
+/// Whether Marklign writes mathematics in GitHub's code forms, a
+/// ```` ```math ```` fence or a `` $`...`$ `` span, where GitHub would not
+/// render `$$` or `$` as written.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum MathFences {
-    /// Inside list items and `<details>` blocks, where GitHub reads `$$` as
-    /// inline math and parses the TeX as prose first.
+    /// Wherever GitHub would read the TeX as Markdown first. A `$$`
+    /// equation becomes a fence inside a list item or a `<details>` block,
+    /// where GitHub reads `$$` as inline math, and anywhere its TeX holds an
+    /// escape such as `\,`, two `*`, or other Markdown. An inline `$` span
+    /// becomes `` $`...`$ `` where GitHub would change its TeX or not find it
+    /// at all: emphasis pairing a `_` in it with one in the next span, or a
+    /// `$` that does not follow a space.
     #[default]
-    Nested,
-    /// Never: keep `$$` everywhere, for renderers without `math` fences.
+    Needed,
+    /// Never: keep `$$` and `$` everywhere, for renderers without GitHub's
+    /// math fences and spans.
     Never,
 }
 
@@ -78,7 +86,7 @@ impl Default for FormatOptions {
             math_width: DEFAULT_MATH_WIDTH,
             trailing_punctuation: TrailingPunctuation::Strip,
             one_line_math: OneLineMath::Expand,
-            math_fences: MathFences::Nested,
+            math_fences: MathFences::Needed,
         }
     }
 }
@@ -143,6 +151,9 @@ fn with_line_endings_of(output: String, input: &str) -> String {
 pub(crate) fn comrak_options() -> Options<'static> {
     let mut options = Options::default();
     options.extension.math_dollars = true;
+    // `$`...`$` is GitHub's inline math that Markdown leaves alone. Read as
+    // code, a span Marklign wrote would look like dollar math again.
+    options.extension.math_code = true;
     // Comrak escapes a literal bracket in prose as `\[`, which the LaTeX math
     // extension then reads back as display math: `\[Optional\]` would become
     // `$$Optional$$`. The extension also restyles `\(x\)` as `$x$`, which
@@ -180,20 +191,35 @@ fn render(
     preferences: FormatOptions,
     options: &Options<'_>,
 ) -> Result<String, std::fmt::Error> {
-    let arena = Arena::new();
-    let root = parse_document(&arena, markdown, options);
+    // Each pass rewrites at least one span and never undoes one, so a few
+    // passes settle any real paragraph; the bound only guards against a
+    // span the serializer writes back in a form the parser reads otherwise.
+    const PASSES: usize = 16;
 
-    for node in root.descendants() {
-        if let NodeValue::Math(ref mut math) = node.data_mut().value {
-            if math.display_math && math.dollar_math {
-                math.literal = format_math(&math.literal, preferences);
+    let mut markdown = markdown.to_owned();
+    for pass in 1.. {
+        let arena = Arena::new();
+        let root = parse_document(&arena, &markdown, options);
+
+        for node in root.descendants() {
+            if let NodeValue::Math(ref mut math) = node.data_mut().value {
+                if math.display_math && math.dollar_math {
+                    math.literal = format_math(&math.literal, preferences);
+                }
             }
         }
-    }
+        let protected = preferences.math_fences == MathFences::Needed
+            && pass <= PASSES
+            && github::protect_inline_math(root, &markdown, options);
 
-    let mut output = String::new();
-    format_commonmark(root, options, &mut output)?;
-    Ok(tidy(&output, options))
+        let mut output = String::new();
+        format_commonmark(root, options, &mut output)?;
+        if !protected {
+            return Ok(tidy(&output, options));
+        }
+        markdown = output;
+    }
+    unreachable!("the passes are bounded")
 }
 
 /// Two blemishes of the Markdown serializer, cleaned up outside code blocks
@@ -204,6 +230,8 @@ fn render(
 ///   emits fenced code, none is needed: a fence at the margin ends the list.
 /// * A blank line inside a list item or block quote keeps the container's
 ///   prefix, leaving trailing whitespace behind.
+/// * A block quote that opens with a code block opens with blank lines too:
+///   `>` lines that come back as more of them on every run.
 fn tidy(rendered: &str, options: &Options<'_>) -> String {
     const SEPARATOR: &str = "<!-- end list -->";
 
@@ -242,6 +270,10 @@ fn tidy(rendered: &str, options: &Options<'_>) -> String {
         // Trailing whitespace is content on a line that has content: two
         // spaces at its end are a hard line break.
         if line.chars().all(|ch| matches!(ch, '>' | ' ' | '\t')) {
+            if opens_quote_blank(line, &output, lines.get(index + 1)) {
+                index += 1;
+                continue;
+            }
             output.push_str(line.trim_end_matches([' ', '\t']));
             output.push('\n');
         } else {
@@ -250,6 +282,20 @@ fn tidy(rendered: &str, options: &Options<'_>) -> String {
         index += 1;
     }
     output
+}
+
+/// A blank line at the very start of a block quote, which renders as nothing:
+/// the quote begins below it, at no shallower depth, and above it is a blank
+/// line or the start of the document.
+fn opens_quote_blank(line: &str, above: &str, below: Option<&&str>) -> bool {
+    let depth = line.matches('>').count();
+    let starts = above.is_empty() || above.ends_with("\n\n");
+    depth > 0
+        && starts
+        && below.is_some_and(|below| {
+            let markers = below.len() - below.trim_start_matches(['>', ' ', '\t']).len();
+            below[..markers].matches('>').count() >= depth
+        })
 }
 
 #[cfg(test)]

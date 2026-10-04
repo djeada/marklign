@@ -81,7 +81,7 @@ struct Args {
     #[arg(long)]
     keep_one_line_math: bool,
 
-    /// Keep `$$` equations in list items and `<details>` rather than writing ```math fences.
+    /// Keep `$$` and `$` math everywhere rather than writing GitHub's ```math fences and $`...`$ spans.
     #[arg(long)]
     no_math_fences: bool,
 
@@ -330,7 +330,7 @@ fn run() -> Result<ExitCode, String> {
         math_fences: if args.no_math_fences {
             MathFences::Never
         } else {
-            MathFences::Nested
+            MathFences::Needed
         },
     };
     let filters = Filters::new(
