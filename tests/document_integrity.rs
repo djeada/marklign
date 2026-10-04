@@ -231,12 +231,17 @@ fn inline_latex_math_delimiters_are_preserved() {
 #[test]
 fn inline_latex_delimiters_are_not_read_out_of_code_or_escapes() {
     for input in [
-        "Code `\\(x\\)` span and $\\(q\\)$ math.\n",
+        "Code `\\(x\\)` span and $`\\(q\\)`$ math.\n",
         "Escaped \\\\(not math\\\\) here.\n",
         "```latex\n\\(\\alpha\\)\n```\n",
     ] {
         assert_eq!(formatted_once(input), input, "{input:?}");
     }
+    // GitHub would read `$\(q\)$` as `$(q)$`, hence the backticks.
+    assert_eq!(
+        formatted_once("Code `\\(x\\)` span and $\\(q\\)$ math.\n"),
+        "Code `\\(x\\)` span and $`\\(q\\)`$ math.\n"
+    );
 }
 
 #[test]
@@ -300,12 +305,13 @@ fn a_sentence_period_after_an_equation_is_dropped() {
 #[test]
 fn punctuation_that_is_mathematics_is_kept() {
     for input in [
-        "$$\nx \\,\n$$\n",
         "$$\n1 + 2 + ...\n$$\n",
         "$$\n\\text{ends in a period.}\n$$\n",
     ] {
         assert_eq!(formatted_once(input), input, "{input:?}");
     }
+    // GitHub would read the `\,` as an escaped comma, hence the fence.
+    assert_eq!(formatted_once("$$\nx \\,\n$$\n"), "```math\nx \\,\n```\n");
     // The reflow closes up `\left(` as it always does; the point here is the
     // `.`, which `\right` needs and which must survive.
     assert_eq!(
@@ -355,5 +361,136 @@ fn equations_in_lists_and_details_become_math_fences() {
     assert_eq!(
         format_document_with_options("- x\n\n  $$a = b$$\n", preferences).unwrap(),
         "- x\n\n  $$\n  a = b\n  $$\n"
+    );
+}
+
+/// GitHub reads the TeX of a `$$` block as Markdown before rendering it, so
+/// `\,` loses its backslash and `T^*`, `p^*` pair up as emphasis that comes
+/// back as `T^_`, `p^_`. A fence is never read as Markdown.
+#[test]
+fn display_tex_github_would_read_as_markdown_becomes_a_math_fence() {
+    assert_eq!(
+        formatted_once("$$\n\\frac{T^*}{T_0} = 0.8333, \\qquad \\frac{p^*}{p_0} = 0.5283\n$$\n"),
+        "```math\n\\frac{T^*}{T_0} = 0.8333,\n\\qquad \\frac{p^*}{p_0} = 0.5283\n```\n"
+    );
+    assert_eq!(
+        formatted_once("> $$\n> \\int f \\, dx\n> $$\n"),
+        "> ```math\n> \\int f \\, dx\n> ```\n"
+    );
+    // Row breaks ending their lines, `_` subscripts and a single `*` reach
+    // GitHub's renderer unchanged; such a block keeps its `$$`.
+    for input in [
+        "$$\n\\begin{aligned}\n  a_i &= b \\\\\n  c^* &= d_{x}\n\\end{aligned}\n$$\n",
+        "$$\n\\left(a\\right)_{x} + \\left(b\\right)_{y} < 1\n$$\n",
+    ] {
+        assert_eq!(formatted_once(input), input, "{input:?}");
+    }
+    let preferences = FormatOptions {
+        math_fences: MathFences::Never,
+        ..FormatOptions::default()
+    };
+    assert_eq!(
+        format_document_with_options("$$\nx \\, y\n$$\n", preferences).unwrap(),
+        "$$\nx \\, y\n$$\n"
+    );
+}
+
+/// GitHub finds inline math in the text Markdown leaves, so a span must come
+/// through Markdown unchanged and follow a space or `(`. Those that would not
+/// are written `$`...`$`, which Markdown leaves alone; the rest are kept.
+#[test]
+fn inline_math_github_would_not_render_gets_backticks() {
+    for (input, expected) in [
+        // An escape loses its backslash.
+        ("Thin $a \\, b$ space.\n", "Thin $`a \\, b`$ space.\n"),
+        // The `_` after `}` and the `_` before `{` pair as emphasis.
+        (
+            "Both $\\mathbf{u}_i$ and $u_{j}$ break.\n",
+            "Both $`\\mathbf{u}_i`$ and $`u_{j}`$ break.\n",
+        ),
+        // As do two `*`, across spans.
+        (
+            "Starred $T^*$ and $p^*$.\n",
+            "Starred $`T^*`$ and $`p^*`$.\n",
+        ),
+        // A `$` after a hyphen or a letter does not open; one before a
+        // letter does not close.
+        (
+            "A moderate-$Re$ flow, $k$s and x$y$.\n",
+            "A moderate-$`Re`$ flow, $`k`$s and x$`y`$.\n",
+        ),
+        // Nor does a `$` between two parentheses close.
+        (
+            "Variables ($p(x, t)$) and $p(x)$.\n",
+            "Variables ($`p(x, t)`$) and $p(x)$.\n",
+        ),
+        // GitHub finds none inside emphasis or link text; strong is fine.
+        (
+            "*Figure: $f(x)$ and **$g$**.* **Bold $h$.** [The $k$ link](x.md)\n",
+            "*Figure: $`f(x)`$ and **$`g`$**.* **Bold $h$.** [The $`k`$ link](x.md)\n",
+        ),
+        // In a heading and a table cell alike.
+        (
+            "## The $k$-$\\epsilon$ model\n",
+            "## The $k$-$`\\epsilon`$ model\n",
+        ),
+    ] {
+        assert_eq!(formatted_once(input), expected, "{input:?}");
+    }
+    for input in [
+        "Plain $u_i$, $v_i$ and $a_{i}^{n} - b_{i}^{n}$ ($x$) render.\n",
+        "**$q$** and $\\rho^*$ and $x < y$; $|u|$.\n",
+        "| $a_1$ | $\\frac{b}{c}$ |\n| --- | --- |\n| x | y |\n",
+        "Already $`a \\, b`$ safe.\n",
+    ] {
+        assert_eq!(formatted_once(input), input, "{input:?}");
+    }
+    let preferences = FormatOptions {
+        math_fences: MathFences::Never,
+        ..FormatOptions::default()
+    };
+    assert_eq!(
+        format_document_with_options("Thin $a \\, b$.\n", preferences).unwrap(),
+        "Thin $a \\, b$.\n"
+    );
+}
+
+/// The Markdown serializer opens a block quote that starts with a code block
+/// with blank `>` lines, two more on every run.
+#[test]
+fn a_block_quote_opening_with_code_gains_no_blank_lines() {
+    for input in [
+        "> ```python\n> x = 1\n> ```\n",
+        "Text\n\n> ```python\n> x = 1\n> ```\n",
+        "> > ```python\n> > x = 1\n> > ```\n",
+    ] {
+        assert_eq!(formatted_once(input), input, "{input:?}");
+    }
+}
+
+/// A line of an equation must not end in a control space: the trailing space
+/// goes, and the backslash left before the line break is a Markdown hard line
+/// break, which cuts the equation in two. One already broken that way is
+/// repaired.
+#[test]
+fn a_control_space_never_ends_a_wrapped_line() {
+    let expected = "$$\ns_2 - s_1 = 1004.5 \\ln \\frac{600}{288.15} - 287 \\ln 10 = 736.7 -\n660.8 = 75.9\\ \\text{J/(kg K)}\n$$\n";
+    for input in [
+        "$$\ns_2 - s_1 = 1004.5 \\ln \\frac{600}{288.15} - 287 \\ln 10 = 736.7 - 660.8 = 75.9\\ \\text{J/(kg K)}\n$$\n",
+        "$$\ns_2 - s_1 = 1004.5 \\ln \\frac{600}{288.15} - 287 \\ln 10 = 736.7 - 660.8 = 75.9\\\n\\text{J/(kg K)}\n$$\n",
+    ] {
+        assert_eq!(formatted_once(input), expected, "{input:?}");
+    }
+}
+
+/// A sign that is itself a superscript or subscript is not spaced as an
+/// operator: `y^+` must not come back as `y^ +`.
+#[test]
+fn a_scripted_sign_stays_with_its_script() {
+    let input = "$$\n\\begin{aligned}\n  y^+ &= \\frac{y u_\\tau}{\\nu} \\\\\n  u_- &= c^{-} \\approx 1\n\\end{aligned}\n$$\n";
+    assert_eq!(formatted_once(input), input);
+    assert_eq!(
+        formatted_once("$$\ny^+ \\approx 30\n$$\n"),
+        "$$\ny^+ \\approx 30\n$$\n"
     );
 }

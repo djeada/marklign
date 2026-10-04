@@ -88,9 +88,29 @@ Only where it really is punctuation: `\,` is a thin space, `\right.` an invisibl
 - Equations inside list items and block quotes are formatted too, and come back with their container's indentation or `>` markers.
 - A `$$` block is a paragraph of its own, set apart by blank lines. GitHub leaves one with prose directly above or below it as TeX source.
 - Inside a list item or a `<details>` block, a `$$` equation is written as a ` ```math ` fence. GitHub renders a `$$` block at the top level, in a block quote, or in a `<div>`, but in those two places it reads `$$` as inline math: a block whose delimiters stand alone is shown as TeX source, and one whose delimiters touch the mathematics is parsed as Markdown first, so `\mathbf{u}_i, \mathbf{u}_j` loses its subscripts to emphasis. A fence is never parsed as Markdown. `--no-math-fences` keeps `$$` everywhere, for renderers without `math` fences. A fence is code to a Markdown parser, so later runs leave it alone.
-- Inline math (`$...$`) and the interiors of braced arguments are never touched.
+- Elsewhere, a `$$` equation whose TeX GitHub would read as Markdown is written as a ` ```math ` fence too, and an inline `$...$` span GitHub would not render as written becomes ``$`...`$``; see [what GitHub does to mathematics](#what-github-does-to-mathematics). Every other inline span, and the interiors of braced arguments, are never touched.
 - Inline `\(...\)` spans are preserved character for character. CommonMark reads `\(` as an escaped parenthesis, so a formatter that does nothing special turns `\(\alpha\)` into `(\\alpha)` — prose where there was mathematics. Marklign holds these spans aside during parsing and puts them back exactly as written, without restyling them into `$...$`. Inline code, `$`-delimited math, and a genuine `\\(` escape are not spans and are left alone.
 - A blank line inside a display block ends the Markdown block the delimiters were meant to bracket. Such an equation is still held aside — otherwise its `=` and `*` lines come back as a heading and a list — but it is put back verbatim rather than reflowed: a blank line is a layout intent this formatter does not claim to understand.
+
+## What GitHub does to mathematics
+
+GitHub does not hand `$` and `$$` mathematics to its Markdown parser as mathematics. It renders the document as Markdown first and looks for the delimiters in the text that comes out, so the TeX between them has already been read as prose:
+
+| Written | GitHub's renderer receives |
+| --- | --- |
+| `\int f \, dx`, `\{x\}`, `a \; b`, `50 \%` | `\int f , dx`, `{x}`, `a ; b`, `50 %` — each escape loses its backslash |
+| `\begin{bmatrix} a \\ b \end{bmatrix}` on one line | `a \ b` — only a `\\` that ends its line survives |
+| `\frac{T^*}{T_0} = \frac{p^*}{p_0}` | `\frac{T^_}{T_0} = \frac{p^_}{p_0}` — the two `*` pair as emphasis, which comes back as `_` |
+| `$\mathbf{u}_i$ and $u_{j}$` | nothing: the two `_` pair as emphasis across the spans, and neither is found |
+| `moderate-$Re$`, `$k$s`, `($p(x)$)` | nothing: a span must follow a space or `(`, must not run into a letter, digit or `_`, and must not end `)$)` |
+| `*Figure: $f(x)$*`, `[the $k$ link](x.md)` | nothing: GitHub looks for no mathematics inside `*emphasis*` or link text, though `**strong**` is fine |
+
+A ` ```math ` fence and a ``$`...`$`` span are code to the Markdown parser and reach the renderer as written. So, unless `--no-math-fences` is given:
+
+- A `$$` equation is written as a ` ```math ` fence when its TeX holds an escape other than a `\\` ending its line, a backslash ending a line, two `*`, two backticks, two `~`, a link, an HTML tag, or an entity reference. Emphasis made of `_` is the one thing GitHub puts back, so subscripts alone keep an equation in `$$`.
+- An inline `$...$` span becomes ``$`...`$`` when GitHub would change it or not find it. Whether it would depends on the whole paragraph, so Marklign asks a Markdown parser the question GitHub asks: the paragraph is parsed again without mathematics, and each span must come out of that parse character for character, inside one run of text, with the neighbours GitHub requires. Taking one span's `_` and `*` out of the paragraph can pair the delimiters left behind differently, so the check repeats until nothing changes.
+
+Everything else keeps the delimiters its author chose.
 
 ## Row-aware LaTeX environments
 
@@ -187,7 +207,7 @@ reformatted docs/intro.md
 - `--math-style readable|compact` selects layout for ordinary equations; default: `readable`. Environment rows use compact layout to preserve explicit alignment.
 - `--math-width N` controls preferred ordinary display-equation source width; default: `88`, minimum: `20`. Indivisible tokens, environment rows, and equations whose safe breakpoints do not fit may exceed it.
 - `--keep-trailing-punctuation` keeps the sentence `.` or `,` at the end of a display equation, which is otherwise dropped.
-- `--no-math-fences` keeps `$$` equations in list items and `<details>` blocks rather than writing them as ` ```math ` fences.
+- `--no-math-fences` keeps `$$` and `$` mathematics everywhere rather than writing GitHub's ` ```math ` fences and ``$`...`$`` spans where GitHub would not render it as written.
 - `--keep-one-line-math` keeps a display equation written on one line, such as `$$a = b$$`, on that line; by default its delimiters move onto lines of their own.
 
 ### Which files a directory walk formats

@@ -100,6 +100,9 @@ fn safe_to_reflow(input: &str) -> bool {
     depth == 0
 }
 
+/// TeX's control space, the one token that ends in whitespace.
+const CONTROL_SPACE: &str = "\\ ";
+
 fn tokenize(input: &str) -> Vec<Token<'_>> {
     let mut tokens = Vec::new();
     let mut position = 0;
@@ -114,6 +117,20 @@ fn tokenize(input: &str) -> Vec<Token<'_>> {
         }
         let start = position;
         position += ch.len_utf8();
+        // A control space keeps its space, wherever the source broke the line
+        // after the backslash: a lone `\` ending a line of an equation is a
+        // hard line break to Markdown.
+        if ch == '\\' && input[position..].starts_with(char::is_whitespace) {
+            let space = input[position..].chars().next().expect("a space");
+            position += space.len_utf8();
+            tokens.push(Token {
+                text: CONTROL_SPACE,
+                kind: Kind::Command,
+                spaced,
+            });
+            spaced = false;
+            continue;
+        }
         let kind = match ch {
             '\\' => {
                 // TeX control words consume letters; control symbols consume
@@ -177,7 +194,14 @@ fn unary(tokens: &[Token<'_>], index: usize) -> bool {
     matches!(tokens[index].text, "+" | "-")
         && (index == 0
             || tokens[index - 1].kind == Kind::Operator
-            || matches!(tokens[index - 1].text, "(" | "["))
+            || matches!(tokens[index - 1].text, "(" | "[")
+            || scripted(tokens, index))
+}
+
+/// An operator that is itself a superscript or subscript, as in `y^+` or
+/// `u_-`: an atom, not something to space as a binary operation.
+fn scripted(tokens: &[Token<'_>], index: usize) -> bool {
+    index > 0 && matches!(tokens[index - 1].text, "^" | "_")
 }
 
 fn ambiguous_operators(tokens: &[Token<'_>]) -> bool {
@@ -195,14 +219,19 @@ fn separator(tokens: &[Token<'_>], index: usize) -> &'static str {
     let previous = &tokens[index - 1];
     let current = &tokens[index];
 
+    // The control space is a space already, and no line may end with one:
+    // trimmed, it would leave a backslash before the line break.
+    if previous.text == CONTROL_SPACE {
+        return "";
+    }
     if current.kind == Kind::Operator {
-        return if unary(tokens, index) && matches!(previous.text, "(" | "[") {
+        return if unary(tokens, index) && matches!(previous.text, "(" | "[" | "^" | "_") {
             ""
         } else {
             " "
         };
     }
-    if previous.kind == Kind::Operator {
+    if previous.kind == Kind::Operator && !scripted(tokens, index - 1) {
         return if unary(tokens, index - 1) { "" } else { " " };
     }
     if matches!(

@@ -22,9 +22,25 @@ All notable changes to marklign are recorded here. The format follows
 - A `$$` block is set apart from the prose around it by blank lines; GitHub
   does not render one that shares a paragraph with text. A hard line break
   after it, which no longer continues a paragraph, is dropped.
+- Mathematics GitHub would read as Markdown is written in GitHub's code
+  forms. GitHub renders a document as Markdown before it looks for `$` and
+  `$$`, so `\,` and `\{` lose their backslashes, `T^*` and `p^*` pair up as
+  emphasis and come back as `T^_` and `p^_`, and an inline span cut by
+  emphasis or not set off by a space is not rendered at all. A `$$`
+  equation holding such TeX is now a ` ```math ` fence wherever it stands,
+  and an inline span GitHub would not render as written becomes
+  ``$`...`$``, decided by parsing its paragraph again without
+  mathematics, as GitHub does. `--no-math-fences` keeps `$$` and `$`.
+  `MathFences::Nested` is now `MathFences::Needed`.
 
 ### Fixed
 
+- A wrapped equation no longer ends a line with a control space. The space
+  was trimmed, and the backslash left before the line break is a Markdown
+  hard line break, which cut the equation in two on GitHub. An equation
+  already broken that way is repaired.
+- A block quote that opens with a code block no longer gains two blank `>`
+  lines on every run.
 - A lone `=` as the first line of an equation no longer underlines the
   opening `$$` as a setext heading; it is joined to the line below.
 - Escapes the Markdown serializer adds without need, such as `### 1\.`,
